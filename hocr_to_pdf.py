@@ -34,7 +34,8 @@ def run_command(command, stderr=subprocess.STDOUT, **kwargs):
             **kwargs,
         )
     except subprocess.CalledProcessError as e:
-        logging.error("%s - %s", e, e.stderr.strip())
+        output = "\n".join(out.strip() for out in (e.stdout, e.stderr) if out)
+        logging.error("%s - %s", e, output)
         sys.exit(1)
     return result.stdout.strip()
 
