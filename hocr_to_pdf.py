@@ -87,6 +87,7 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
         output_file,
         workdir,
     ])
+    logging.debug("hocr-pdf output: %s", output)
 
 
 def extract_zip(zip_path, dirpath):
