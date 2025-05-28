@@ -74,7 +74,7 @@ def img_size(img_file):
 
 def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
     for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
-        root = os.path.join(workdir, f"{i:6}")
+        root = os.path.join(workdir, f"{i:06}")
         os.link(img, root + ".jpg")
         os.link(hocr, root + ".hocr")
 
