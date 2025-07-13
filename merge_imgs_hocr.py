@@ -81,11 +81,12 @@ def validate_pdf(pdf_file):
 
     logging.debug("jhove xml output:\n%s", result.stdout.decode())
 
-    nsmap = {"j": "http://schema.openpreservation.org/ois/xml/ns/jhove"}
-    xpath = "/j:jhove/j:repInfo/j:status"
-
     root = ET.fromstring(result.stdout)
     logging.debug("jhove text output:\n%s", get_all_text(root))
+
+    logging.debug("Namespaces: %s", root.nsmap)
+    nsmap = {"j": root.nsmap[None]}
+    xpath = "/j:jhove/j:repInfo/j:status"
     status = root.xpath(xpath, namespaces=nsmap)[0].text
     logging.debug("jhove status: %s", status)
 
