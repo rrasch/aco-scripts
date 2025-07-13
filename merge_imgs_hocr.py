@@ -6,7 +6,6 @@ import argparse
 import glob
 import logging
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -28,10 +27,6 @@ def get_num_pages(meta_file):
             "Problem parsing file '%s' - %s: %s", meta_file, type(e).__name__, e
         )
         return None
-
-
-def image_count(book_dir):
-    return len(glob.glob(os.path.join(book_dir, "*", "JPG.jpg")))
 
 
 def merge_hocr(img_files, hocr_files, output_file, workdir):
@@ -98,33 +93,41 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("book_dir", type=util.validate_dirpath)
     parser.add_argument("output_file")
-    parser.add_argument("-m", "--max-pages", type=int)
+    parser.add_argument("-m", "--max-pages", type=util.is_pos_int)
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
 
     level = logging.DEBUG if args.debug else logging.WARN
-    logging.basicConfig(level=level)
+    logging.basicConfig(format="%(levelname)s: %(message)s", level=level)
 
     book_id = os.path.basename(args.book_dir)
 
     meta_file = os.path.join(args.book_dir, "DJVUXML.xml")
-    num_pages = (
-        args.max_pages or get_num_pages(meta_file) or image_count(args.book_dir)
-    )
+    num_pages = get_num_pages(meta_file)
+    logging.debug("Num pages: %s", num_pages)
 
     if not num_pages:
-        sys.exit("Can't find number of pages for {book_id}")
-
-    logging.debug("Num pages: %s", num_pages)
+        sys.exit(f"Can't find number of pages for {book_id}")
 
     img_files = []
     hocr_files = []
+    img_glob = os.path.join(args.book_dir, f"{book_id}_*", "JPG.jpg")
+    for filepath in sorted(glob.glob(img_glob)):
+        img_files.append(filepath)
+        hocr_files.append(os.path.join(os.path.dirname(filepath), "HOCR.html"))
+
+    if num_pages != len(img_files):
+        sys.exit(
+            f"Page count [{num_pages}] in metadata file '{meta_file}' != number"
+            f" of images [{len(img_files)}] in image directory"
+            f" '{args.book_dir}'"
+        )
+
+    if args.max_pages:
+        img_files = img_files[: args.max_pages]
+        hocr_files = hocr_files[: args.max_pages]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        for i in range(1, num_pages + 1):
-            basename = os.path.join(args.book_dir, f"{book_id}_n{i:06}")
-            img_files.append(os.path.join(basename, "JPG.jpg"))
-            hocr_files.append(os.path.join(basename, "HOCR.html"))
         merge_hocr(img_files, hocr_files, args.output_file, tmpdir)
 
     validate_pdf(args.output_file)

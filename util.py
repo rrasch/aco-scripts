@@ -140,3 +140,14 @@ def validate_filepath(filepath):
     if not os.path.exists(filepath):
         raise argparse.ArgumentTypeError(f"File '{filepath}' does not exist.")
     return os.path.realpath(filepath)
+
+
+def is_pos_int(val):
+    int_val = None
+    try:
+        int_val = int(val)
+    except ValueError:
+        pass
+    if int_val is None or int_val < 1:
+        raise argparse.ArgumentTypeError(f"'{val}' is not a positive integer")
+    return int_val
