@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -87,6 +88,17 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
 def extract_zip(zip_path, dirpath):
     with zipfile.ZipFile(zip_path, "r") as zip_ref:
         zip_ref.extractall(dirpath)
+
+
+def get_magick_cmd():
+    magick_cmd = None
+    for cmd in ("magick", "convert"):
+        if shutil.which(cmd):
+            magick_cmd = cmd
+            break
+    if not magick_cmd:
+        sys.exit("ImageMagick is not installed.")
+    return magick_cmd
 
 
 def shlex_join(split_command):
