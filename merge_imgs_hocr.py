@@ -89,6 +89,11 @@ def validate_pdf(pdf_file):
         sys.exit(f"PDF {pdf_file} fails JHOVE validation.")
 
 
+def do_cmd(command):
+    logging.debug("Running command: %s", command)
+    subprocess.run(command, check=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("book_dir", type=util.validate_dirpath)
@@ -130,7 +135,10 @@ def main():
         hocr_files = hocr_files[: args.max_pages]
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        merge_hocr(img_files, hocr_files, args.output_file, tmpdir)
+        tmp_pdf_file = os.path.join(tmpdir, "tmp.pdf")
+        merge_hocr(img_files, hocr_files, tmp_pdf_file, tmpdir)
+        do_cmd(["exiftool", "-q", "-all:all=", tmp_pdf_file])
+        do_cmd(["qpdf", "--linearize", tmp_pdf_file, args.output_file])
 
     validate_pdf(args.output_file)
 
