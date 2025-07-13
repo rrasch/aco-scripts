@@ -138,7 +138,7 @@ def main():
     )
     args = parser.parse_args()
 
-    level = logging.DEBUG if logging.DEBUG else logging.WARN
+    level = logging.DEBUG if args.debug else logging.WARN
     logging.basicConfig(level=level)
 
     root, ext = os.path.splitext(args.zip_file)
