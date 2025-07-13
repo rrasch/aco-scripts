@@ -94,6 +94,7 @@ def main():
     parser.add_argument("book_dir", type=util.validate_dirpath)
     parser.add_argument("output_file")
     parser.add_argument("-m", "--max-pages", type=util.is_pos_int)
+    parser.add_argument("-s", "--skip-meta", action="store_true")
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
 
@@ -102,13 +103,6 @@ def main():
 
     book_id = os.path.basename(args.book_dir)
 
-    meta_file = os.path.join(args.book_dir, "DJVUXML.xml")
-    num_pages = get_num_pages(meta_file)
-    logging.debug("Num pages: %s", num_pages)
-
-    if not num_pages:
-        sys.exit(f"Can't find number of pages for {book_id}")
-
     img_files = []
     hocr_files = []
     img_glob = os.path.join(args.book_dir, f"{book_id}_*", "JPG.jpg")
@@ -116,12 +110,20 @@ def main():
         img_files.append(filepath)
         hocr_files.append(os.path.join(os.path.dirname(filepath), "HOCR.html"))
 
-    if num_pages != len(img_files):
-        sys.exit(
-            f"Page count [{num_pages}] in metadata file '{meta_file}' != number"
-            f" of images [{len(img_files)}] in image directory"
-            f" '{args.book_dir}'"
-        )
+    if not args.skip_meta:
+        meta_file = os.path.join(args.book_dir, "DJVUXML.xml")
+        num_pages = get_num_pages(meta_file)
+        logging.debug("Num pages: %s", num_pages)
+
+        if not num_pages:
+            sys.exit(f"Can't find number of pages for {book_id}")
+
+        if num_pages != len(img_files):
+            sys.exit(
+                f"Page count [{num_pages}] in metadata file '{meta_file}' !="
+                f" number of images [{len(img_files)}] in image directory"
+                f" '{args.book_dir}'"
+            )
 
     if args.max_pages:
         img_files = img_files[: args.max_pages]
