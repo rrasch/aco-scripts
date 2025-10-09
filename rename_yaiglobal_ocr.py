@@ -102,19 +102,17 @@ def format_permissions(path: str) -> str:
 
     # Get the file's permissions
     permissions = stat.S_IMODE(file_stat.st_mode)
-    permissions_str = "".join(
-        [
-            "r" if permissions & stat.S_IRUSR else "-",
-            "w" if permissions & stat.S_IWUSR else "-",
-            "x" if permissions & stat.S_IXUSR else "-",
-            "r" if permissions & stat.S_IRGRP else "-",
-            "w" if permissions & stat.S_IWGRP else "-",
-            "x" if permissions & stat.S_IXGRP else "-",
-            "r" if permissions & stat.S_IROTH else "-",
-            "w" if permissions & stat.S_IWOTH else "-",
-            "x" if permissions & stat.S_IXOTH else "-",
-        ]
-    )
+    permissions_str = "".join([
+        "r" if permissions & stat.S_IRUSR else "-",
+        "w" if permissions & stat.S_IWUSR else "-",
+        "x" if permissions & stat.S_IXUSR else "-",
+        "r" if permissions & stat.S_IRGRP else "-",
+        "w" if permissions & stat.S_IWGRP else "-",
+        "x" if permissions & stat.S_IXGRP else "-",
+        "r" if permissions & stat.S_IROTH else "-",
+        "w" if permissions & stat.S_IWOTH else "-",
+        "x" if permissions & stat.S_IXOTH else "-",
+    ])
 
     # Get the file type (regular file or directory)
     file_type = "d" if stat.S_ISDIR(file_stat.st_mode) else "-"
@@ -325,8 +323,8 @@ def rename_ocr(
 
     if check_perms and not is_writable_and_executable(yai_dir):
         raise FileRenameError(
-            "You don't have write and execute permissions on YaiGlobal directory"
-            f" '{yai_dir}' perm: {format_permissions(qnl_dir)}"
+            "You don't have write and execute permissions on YaiGlobal"
+            f" directory '{yai_dir}' perm: {format_permissions(qnl_dir)}"
         )
 
     cf = ColorFormatter(use_color=colorize)
@@ -344,7 +342,7 @@ def rename_ocr(
 
 def main():
     parser = argparse.ArgumentParser(
-        description=("Rename YaiGlobal OCR files to match R* source filenames")
+        description="Rename YaiGlobal OCR files to match R* source filenames"
     )
     parser.add_argument(
         "se_dir",
