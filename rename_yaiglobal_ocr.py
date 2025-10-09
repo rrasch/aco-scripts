@@ -339,6 +339,8 @@ def rename_ocr(
         if not dry_run:
             os.rename(src, dst)
 
+    return dmaker_imgs, dst_html
+
 
 def main():
     parser = argparse.ArgumentParser(
