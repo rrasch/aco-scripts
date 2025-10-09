@@ -151,16 +151,19 @@ def resize_and_merge_hocr(
     img_files, hocr_files, output_file, workdir, new_dpi=200
 ):
     bbox = get_first_valid_bbox(hocr_files)
+    logging.debug("bbox: %s", bbox)
 
     with PIL.Image.open(img_files[bbox["index"]]) as img:
         img_width, img_height = img.size
+        logging.debug("img.size: %s", img.size)
         scale = (img_width / bbox["width"]) * (new_dpi / img.info["dpi"][0])
+        logging.debug("scale: %s", scale)
 
     magick = get_magick_cmd()
     for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
         root = os.path.join(workdir, f"{i:06}")
         output = run_command(
-            [magick, img, "-resample", str(new_dpi), root + ".jpg"]
+            [magick, img, "-resample", str(new_dpi), "-strip", root + ".jpg"]
         )
         logging.debug("magick output: %s", output)
         os.symlink(hocr, root + ".hocr")
@@ -195,7 +198,7 @@ def get_magick_cmd():
 
 def shlex_join(split_command):
     """Return a shell-escaped string from *split_command*."""
-    return " ".join(shlex.quote(arg) for arg in split_command)
+    return " ".join(shlex.quote(str(arg)) for arg in split_command)
 
 
 class PDFInfo:
