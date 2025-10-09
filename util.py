@@ -1,4 +1,5 @@
 from glob import glob
+from lxml import etree
 import PIL.Image
 import argparse
 import logging
@@ -67,6 +68,67 @@ def img_size(img_file):
         return img.size
 
 
+def get_page_bbox(hocr_path):
+    """
+    Extract the page-level bounding box from a single hOCR file using
+    lxml.etree.
+
+    Args:
+        hocr_path (str): Path to the hOCR (.html or .hocr) file.
+
+    Returns:
+        tuple: (x1, y1, x2, y2) bounding box coordinates, or None if not
+        found.
+    """
+    parser = etree.HTMLParser()
+    tree = etree.parse(hocr_path, parser)
+
+    # Match div elements with class="ocr_page"
+    page_divs = tree.xpath('//div[@class="ocr_page"]')
+    if not page_divs:
+        return None
+
+    title_attr = page_divs[0].get("title", "")
+    if "bbox" not in title_attr:
+        return None
+
+    bbox_str = title_attr.split("bbox")[1].split(";")[0].strip()
+    return tuple(map(int, bbox_str.split()))
+
+
+def get_first_valid_bbox(hocr_files):
+    """
+    Iterate through a list of hOCR files and return the first valid page
+    bounding box found.
+
+    Args:
+        hocr_files (list[str]): List of file paths to .hocr or .html
+        files.
+
+    Returns:
+        dict: A dictionary with keys:
+            'bbox'   (tuple): (x1, y1, x2, y2)
+            'width'  (int): Page width in pixels
+            'height' (int): Page height in pixels
+            'index'  (int): Index of the file in the input list
+            'path'   (str): Path of the file where the bbox was found
+
+        Returns None if no valid bbox is found.
+    """
+    for idx, path in enumerate(hocr_files):
+        bbox = get_page_bbox(path)
+        if bbox:
+            x1, y1, x2, y2 = bbox
+            return {
+                "bbox": bbox,
+                "width": x2 - x1,
+                "height": y2 - y1,
+                "index": idx,
+                "path": path,
+            }
+    return None
+
+
 def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
     for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
         root = os.path.join(workdir, f"{i:06}")
@@ -77,6 +139,36 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
         "hocr-pdf",
         "--scale-hocr",
         scale,
+        "--reverse",
+        "--savefile",
+        output_file,
+        workdir,
+    ])
+    logging.debug("hocr-pdf output: %s", output)
+
+
+def resize_and_merge_hocr(
+    img_files, hocr_files, output_file, workdir, new_dpi=200
+):
+    bbox = get_first_valid_bbox(hocr_files)
+
+    with PIL.Image.open(img_files[bbox["index"]]) as img:
+        img_width, img_height = img.size
+        scale = (img_width / bbox["width"]) * (new_dpi / img.info["dpi"][0])
+
+    magick = get_magick_cmd()
+    for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
+        root = os.path.join(workdir, f"{i:06}")
+        output = run_command(
+            [magick, img, "-resample", str(new_dpi), root + ".jpg"]
+        )
+        logging.debug("magick output: %s", output)
+        os.symlink(hocr, root + ".hocr")
+
+    output = run_command([
+        "hocr-pdf",
+        "--scale-hocr",
+        f"{scale:.3f}",
         "--reverse",
         "--savefile",
         output_file,
