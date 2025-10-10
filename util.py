@@ -154,7 +154,7 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
     logging.debug("hocr-pdf output: %s", output)
 
 
-def generate_pdf(img_files, hocr_files, output_file, workdir, dpi=200):
+def generate_pdf(img_files, hocr_files, output_file, dpi=200):
     """
     Generate a searchable PDF from image and hOCR files using hocr-pdf.
 
@@ -167,12 +167,14 @@ def generate_pdf(img_files, hocr_files, output_file, workdir, dpi=200):
     rescales and strips each image, links the matching hOCR files, and calls
     hocr-pdf to generate the output file.
 
+    A temporary directory is used for each conversion to ensure isolation
+    and automatic cleanup of intermediate files.
+
     Args:
         img_files (list[str]): List of paths to image files (one per page).
         hocr_files (list[str]): List of paths to hOCR files corresponding to
             each image file.
         output_file (str): Path where the final PDF will be saved.
-        workdir (str): Working directory used for intermediate files.
         dpi (int, optional): Target DPI for image resampling. Defaults to 200.
 
     Raises:
@@ -192,24 +194,36 @@ def generate_pdf(img_files, hocr_files, output_file, workdir, dpi=200):
         logging.debug("scale: %s", scale)
 
     magick = get_magick_cmd()
-    for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
-        root = os.path.join(workdir, f"{i:06}")
-        output = run_command(
-            [magick, img, "-resample", str(dpi), "-strip", root + ".jpg"]
-        )
-        logging.debug("magick output: %s", output)
-        os.symlink(hocr, root + ".hocr")
 
-    output = run_command([
-        "hocr-pdf",
-        "--scale-hocr",
-        f"{scale:.3f}",
-        "--reverse",
-        "--savefile",
-        output_file,
-        workdir,
-    ])
-    logging.debug("hocr-pdf output: %s", output)
+    with tempfile.TemporaryDirectory() as workdir:
+        for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
+            root = os.path.join(workdir, f"{i:06}")
+            output = run_command(
+                [magick, img, "-resample", str(dpi), "-strip", root + ".jpg"]
+            )
+            logging.debug("magick output: %s", output)
+            os.symlink(hocr, root + ".hocr")
+
+        tmp_pdf_file = os.path.join(workdir, "tmp.pdf")
+
+        output = run_command([
+            "hocr-pdf",
+            "--scale-hocr",
+            f"{scale:.3f}",
+            "--reverse",
+            "--savefile",
+            tmp_pdf_file,
+            workdir,
+        ])
+        logging.debug("hocr-pdf output: %s", output)
+
+        # Remove metadata from pdf
+        output = run_command(["exiftool", "-q", "-all:all=", tmp_pdf_file])
+        logging.debug("exiftool output: %s", output)
+
+        # make exiftool changes irreversible
+        output = run_command(["qpdf", "--linearize", tmp_pdf_file, output_file])
+        logging.debug("qpdf output: %s", output)
 
 
 def generate_pdfs(img_files, hocr_files, output_base):
@@ -221,9 +235,6 @@ def generate_pdfs(img_files, hocr_files, output_base):
     produces a separate PDF for each setting. Each generated PDF is named
     using the `output_base` plus a variant suffix derived from the `PDF_DPI`
     key (e.g., "low", "high", "print").
-
-    Temporary directories are used for each conversion to ensure isolation
-    and automatic cleanup of intermediate files.
 
     Args:
         img_files (list[str] or list[pathlib.Path]): Paths to image files
@@ -240,21 +251,11 @@ def generate_pdfs(img_files, hocr_files, output_base):
         RuntimeError: If PDF generation fails for any DPI setting.
     """
     pdfs = []
-
     for ext, dpi in PDF_DPI.items():
         outfile = Path(f"{output_base}_{ext}.pdf")
         logging.debug("Generating PDF: %s (DPI=%s)", outfile, dpi)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            generate_pdf(
-                img_files,
-                hocr_files,
-                outfile,
-                tmpdir,
-                dpi=dpi,
-            )
+        generate_pdf(img_files, hocr_files, outfile, dpi=dpi)
         pdfs.append(outfile)
-
     return pdfs
 
 
