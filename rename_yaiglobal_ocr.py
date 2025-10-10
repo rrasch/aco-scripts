@@ -256,7 +256,7 @@ def get_bookid(se_dir):
     return os.path.basename(os.path.dirname(se_dir))
 
 
-def rename_ocr(
+def rename_files(
     se_dir, yai_dir, dry_run=False, colorize=False, check_perms=True
 ):
     bookid = get_bookid(se_dir)
@@ -386,7 +386,7 @@ def main():
     level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(format="%(levelname)s: %(message)s", level=level)
 
-    rename_ocr(
+    rename_files(
         args.se_dir, args.yai_dir, args.dry_run, args.colorize, args.check_perms
     )
 
