@@ -67,22 +67,22 @@ import argparse
 import configparser
 import csv
 import logging
-import rename_yaiglobal_ocr
+import rename_yaiglobal_ocr as ryo
 import subprocess
 import sys
-import tempfile
 import util
 import zipfile
+
+
+class ZipCountValidationError(Exception):
+    """Raised when ZIP files and CSV entries do not match."""
+
+    pass
+
 
 # -------------------------------------------------------------------
 # Configuration
 # -------------------------------------------------------------------
-PDF_DPI = {
-    "hi": 200,
-    "lo": 96,
-}
-
-
 def load_config(config_path: Path):
     """Load config file and return key paths."""
     if not config_path.exists():
@@ -181,36 +181,56 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
         csv_path (Path): Path to the batch CSV file.
 
     Returns:
-        list[str]: Sorted list of verified book IDs (without ".zip").
+        list[str]: Sorted list of verified bookids (without ".zip").
 
     Raises:
-        ZipCountMismatchError: If any mismatch or missing/extra file
-                               is detected.
+        ZipCountValidationError: If any mismatch, encoding error, or
+                                 structural CSV issue is detected.
     """
+    id_col = "identifier"
+
     # Collect ZIP files and their base names
     zip_files = sorted(outbox.glob("*.zip"))
     zip_bookids = {z.stem for z in zip_files}
 
-    # --- Read CSV file robustly ---
+    # --- Read CSV file robustly using DictReader ---
     try_encodings = ["utf-8", "utf-8-sig", "cp1252", "latin-1"]
+    csv_bookids = None
+    used_encoding = None
+
     for enc in try_encodings:
         try:
             with csv_path.open(newline="", encoding=enc) as f:
-                reader = csv.reader(f)
-                header = next(reader, None)
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    raise ZipCountValidationError(
+                        f"CSV missing headers in {csv_path}."
+                    )
+                if id_col not in reader.fieldnames:
+                    raise ZipCountValidationError(
+                        f"CSV missing required '{id_col}' column in {csv_path}."
+                    )
+
                 csv_bookids = {
-                    row[0].strip() for row in reader if row and row[0].strip()
+                    row[id_col].strip()
+                    for row in reader
+                    if row.get(id_col) and row[id_col].strip()
                 }
+
+            used_encoding = enc
             logging.debug("Parsed CSV using encoding: %s", enc)
             break
-        except UnicodeDecodeError:
-            continue
+
+        except UnicodeDecodeError as e:
+            logging.debug("Failed to parse %s with %s: %s", csv_path, enc, e)
+            continue  # Try the next encoding
+
     else:
-        raise ZipCountMismatchError(
-            f"Unable to decode CSV file {csv_path} using common encodings."
+        raise ZipCountValidationError(
+            f"Unable to parse {csv_path} using common encodings"
         )
 
-    # Compare ZIPs vs CSV entries
+    # --- Compare ZIPs vs CSV entries ---
     zip_count = len(zip_bookids)
     csv_count = len(csv_bookids)
     logging.info("Found %d ZIP files and %d CSV entries.", zip_count, csv_count)
@@ -238,10 +258,13 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
             )
         message = "\n".join(msg_lines)
         logging.error(message)
-        raise ZipCountMismatchError(message)
+        raise ZipCountValidationError(message)
 
-    logging.info("✅ ZIP files and CSV entries match exactly.")
-    return sorted(zip_bookids)
+    logging.info(
+        "✅ ZIP files and CSV entries match exactly (encoding: %s).",
+        used_encoding,
+    )
+    return sorted(csv_bookids)
 
 
 def unzip_to_processing(outbox: Path, processing: Path):
@@ -253,7 +276,6 @@ def unzip_to_processing(outbox: Path, processing: Path):
         with zipfile.ZipFile(zipfile_path, "r") as z:
             z.extractall(target_dir)
         logging.debug("Unzipped %s → %s", zipfile_path, target_dir)
-        break
     logging.info("All zip files extracted into processing directory.")
 
 
@@ -310,7 +332,7 @@ def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
     sync_s3_batch(s3_bucket, batch_id, outbox)
     csv_path = get_batch_csv(s3_bucket, batch_id, outbox)
     csv_path = Path("batch0000.csv")
-    verified_ids = confirm_zip_count(outbox, csv_path)
+    confirm_zip_count(outbox, csv_path)
     unzip_to_processing(outbox, processing)
     validate_file_counts(processing)
 
@@ -327,17 +349,8 @@ def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
             continue
         # rename_files(d, dmaker_files)
         # generate_pdfs(d, dmaker_files)
-        dmaker_imgs, hocr_files = rename_yaiglobal_ocr.rename_ocr(
-            dmaker_path, d, dry_run=False, colorize=True
-        )
-        for ext, dpi in PDF_DPI.items():
-            with tempfile.TemporaryDirectory() as tmpdir:
-                util.resize_and_merge_hocr(
-                    dmaker_imgs,
-                    hocr_files,
-                    output_dir / f"{d.name}_{ext}.pdf",
-                    tmpdir,
-                )
+        dmaker_imgs, hocr_files = ryo.rename_files(dmaker_path, d)
+        util.generate_pdfs(dmaker_imgs, hocr_files, output_dir / d.name)
 
     logging.info("✅ Batch %s processing complete.", batch_id)
 
