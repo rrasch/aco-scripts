@@ -281,7 +281,7 @@ def unzip_to_processing(outbox: Path, processing: Path):
 
 def validate_file_counts(processing: Path):
     """Ensure HTML and TXT file counts match for each digitization ID."""
-    for d in processing.iterdir():
+    for d in sorted(processing.iterdir()):
         if d.is_dir():
             htmls = list(d.glob("*.html"))
             txts = list(d.glob("*.txt"))
@@ -336,7 +336,7 @@ def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
     unzip_to_processing(outbox, processing)
     validate_file_counts(processing)
 
-    for d in processing.iterdir():
+    for d in sorted(processing.iterdir()):
         if not d.is_dir():
             continue
         partner = d.name.split("_")[0]
