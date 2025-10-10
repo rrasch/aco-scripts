@@ -57,9 +57,9 @@ A config file (default: ./yaiglobal_config.ini) defines:
 --------------------------------------------------------------------
 Usage
 --------------------------------------------------------------------
-  ./yaiglobal_flow.py 0007
-  ./yaiglobal_flow.py 0007 --verbose
-  ./yaiglobal_flow.py 0007 --config /path/to/custom.ini
+  ./process_yaiglobal_batch.py 0007
+  ./process_yaiglobal_batch.py 0007 --verbose
+  ./process_yaiglobal_batch.py 0007 --config /path/to/custom.ini
 """
 
 from pathlib import Path
