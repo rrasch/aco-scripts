@@ -1,5 +1,6 @@
 from glob import glob
 from lxml import etree
+from pathlib import Path
 import PIL.Image
 import argparse
 import logging
@@ -9,7 +10,13 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
+
+PDF_DPI = {
+    "hi": 200,
+    "lo": 96,
+}
 
 
 def sglob(pattern):
@@ -147,23 +154,48 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
     logging.debug("hocr-pdf output: %s", output)
 
 
-def resize_and_merge_hocr(
-    img_files, hocr_files, output_file, workdir, new_dpi=200
-):
+def generate_pdf(img_files, hocr_files, output_file, workdir, dpi=200):
+    """
+    Generate a searchable PDF from image and hOCR files using hocr-pdf.
+
+    This function takes lists of image and corresponding hOCR files, rescales
+    the images to match the text bounding boxes in the hOCR data, and uses
+    ImageMagick and hocr-pdf to assemble them into a single searchable PDF.
+
+    The function determines the scaling factor by comparing the dimensions of
+    the first valid hOCR bounding box with the corresponding image. It then
+    rescales and strips each image, links the matching hOCR files, and calls
+    hocr-pdf to generate the output file.
+
+    Args:
+        img_files (list[str]): List of paths to image files (one per page).
+        hocr_files (list[str]): List of paths to hOCR files corresponding to
+            each image file.
+        output_file (str): Path where the final PDF will be saved.
+        workdir (str): Working directory used for intermediate files.
+        dpi (int, optional): Target DPI for image resampling. Defaults to 200.
+
+    Raises:
+        RuntimeError: If external commands (ImageMagick or hocr-pdf) fail.
+        ValueError: If no valid bounding box can be extracted from hOCR files.
+
+    Returns:
+        None
+    """
     bbox = get_first_valid_bbox(hocr_files)
     logging.debug("bbox: %s", bbox)
 
     with PIL.Image.open(img_files[bbox["index"]]) as img:
         img_width, img_height = img.size
         logging.debug("img.size: %s", img.size)
-        scale = (img_width / bbox["width"]) * (new_dpi / img.info["dpi"][0])
+        scale = (img_width / bbox["width"]) * (dpi / img.info["dpi"][0])
         logging.debug("scale: %s", scale)
 
     magick = get_magick_cmd()
     for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
         root = os.path.join(workdir, f"{i:06}")
         output = run_command(
-            [magick, img, "-resample", str(new_dpi), "-strip", root + ".jpg"]
+            [magick, img, "-resample", str(dpi), "-strip", root + ".jpg"]
         )
         logging.debug("magick output: %s", output)
         os.symlink(hocr, root + ".hocr")
@@ -178,6 +210,52 @@ def resize_and_merge_hocr(
         workdir,
     ])
     logging.debug("hocr-pdf output: %s", output)
+
+
+def generate_pdfs(img_files, hocr_files, output_base):
+    """
+    Generate multiple PDF variants from image and hOCR files.
+
+    This function serves as a wrapper around `generate_pdf()`. It iterates
+    over the DPI settings defined in the global `PDF_DPI` mapping and
+    produces a separate PDF for each setting. Each generated PDF is named
+    using the `output_base` plus a variant suffix derived from the `PDF_DPI`
+    key (e.g., "low", "high", "print").
+
+    Temporary directories are used for each conversion to ensure isolation
+    and automatic cleanup of intermediate files.
+
+    Args:
+        img_files (list[str] or list[pathlib.Path]): Paths to image files
+            (one per page).
+        hocr_files (list[str] or list[pathlib.Path]): Paths to hOCR files
+            corresponding to each image file.
+        output_base (str or pathlib.Path): Base path (without extension) for
+            the output PDF files.
+
+    Returns:
+        list[pathlib.Path]: Paths to the generated PDF files.
+
+    Raises:
+        RuntimeError: If PDF generation fails for any DPI setting.
+    """
+    pdfs = []
+
+    for ext, dpi in PDF_DPI.items():
+        outfile = Path(f"{output_base}_{ext}.pdf")
+        logging.debug("Generating PDF: %s (DPI=%s)", outfile, dpi)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            generate_pdf(
+                img_files,
+                hocr_files,
+                outfile,
+                tmpdir,
+                dpi=dpi,
+            )
+        pdfs.append(outfile)
+
+    return pdfs
 
 
 def extract_zip(zip_path, dirpath):
