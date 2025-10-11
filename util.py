@@ -184,6 +184,10 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
     Returns:
         None
     """
+    if os.path.isfile(output_file):
+        logging.warning("File %s already exists", output_file)
+        return
+
     bbox = get_first_valid_bbox(hocr_files)
     logging.debug("bbox: %s", bbox)
 
@@ -198,9 +202,14 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
     with tempfile.TemporaryDirectory() as workdir:
         for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
             root = os.path.join(workdir, f"{i:06}")
-            output = run_command(
-                [magick, img, "-resample", str(dpi), "-strip", root + ".jpg"]
-            )
+            output = run_command([
+                magick,
+                img + "[0]",
+                "-resample",
+                str(dpi),
+                "-strip",
+                root + ".jpg",
+            ])
             logging.debug("magick output: %s", output)
             os.symlink(hocr, root + ".hocr")
 
