@@ -68,6 +68,7 @@ import configparser
 import csv
 import logging
 import rename_yaiglobal_ocr as ryo
+import shutil
 import subprocess
 import sys
 import util
@@ -128,6 +129,51 @@ def run(args):
         logging.error(result.stderr.strip())
         sys.exit(result.returncode)
     return result.stdout.strip()
+
+
+def verify_tools():
+    """
+    Verify that required command-line tools are installed:
+        - aws
+        - exiftool
+        - qpdf
+        - ImageMagick (either 'convert' or 'magick')
+
+    Uses logging for status messages:
+        [OK]  indicates a tool was found
+        [X]   indicates a tool is missing
+
+    Raises:
+        SystemExit: if one or more required tools are missing.
+    """
+    tools = {
+        "aws": "aws",
+        "exiftool": "exiftool",
+        "qpdf": "qpdf",
+    }
+
+    results = {
+        name: shutil.which(cmd) is not None for name, cmd in tools.items()
+    }
+
+    # Handle ImageMagick (either 'magick' or 'convert')
+    imagemagick_found = shutil.which("magick") or shutil.which("convert")
+    results["imagemagick"] = imagemagick_found is not None
+
+    # Log tool status
+    for tool, ok in results.items():
+        mark = "[OK]" if ok else "[X]"
+        if ok:
+            logging.info("%s  %-12s found", mark, tool)
+        else:
+            logging.error("%s  %-12s missing", mark, tool)
+
+    missing = [t for t, ok in results.items() if not ok]
+    if missing:
+        logging.critical("Missing required tools: %s", ", ".join(missing))
+        sys.exit(1)
+
+    logging.info("All required tools are installed.")
 
 
 def create_batch_dirs(root: Path, batch_id: str):
@@ -381,6 +427,8 @@ def main():
 
     args = parser.parse_args()
     setup_logging(args.verbose)
+
+    verify_tools()
 
     root, s3_bucket, output_dir = load_config(args.config)
     process_batch(root, s3_bucket, output_dir, args.batch_id)
