@@ -159,13 +159,15 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
     Generate a searchable PDF from image and hOCR files using hocr-pdf.
 
     This function takes lists of image and corresponding hOCR files, rescales
-    the images to match the text bounding boxes in the hOCR data, and uses
-    ImageMagick and hocr-pdf to assemble them into a single searchable PDF.
+    the images to target dpi, and uses hocr-pdf to assemble them into a single
+    searchable PDF.
 
-    The function determines the scaling factor by comparing the dimensions of
-    the first valid hOCR bounding box with the corresponding image. It then
-    rescales and strips each image, links the matching hOCR files, and calls
-    hocr-pdf to generate the output file.
+    The function determines the scaling factor that is passed to hocr-pdf
+    in order to match the coordinates of the hOCR files with the points
+    in the newly scaled images.  It determines the scaling factory by comparing
+    the dimensions of the first valid hOCR bounding box with the corresponding
+    image.  It then rescales and strips each image, links the matching hOCR
+    files, and calls hocr-pdf to generate the output file.
 
     A temporary directory is used for each conversion to ensure isolation
     and automatic cleanup of intermediate files.
