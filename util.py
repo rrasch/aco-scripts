@@ -157,9 +157,13 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
 
 
 def calc_scale(img_path, bbox_width, target_dpi):
+    pil_logger = logging.getLogger("PIL")
+    orig_level = pil_logger.level
+    pil_logger.setLevel(logging.WARN)
     with PIL.Image.open(img_path) as img:
         img_width, img_height = img.size
         img_dpi = img.info["dpi"][0]
+    pil_logger.setLevel(orig_level)
     logging.debug("img size: %s x %s", img_width, img_height)
     scale = (img_width / bbox_width) * (target_dpi / img_dpi)
     logging.debug("scale: %s", scale)
@@ -304,24 +308,14 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
             f"Number of hOCR files {len(hocr_files)}"
         )
 
-    bbox = get_first_valid_bbox(hocr_files)
-    logging.debug("bbox: %s", bbox)
-
-    if bbox is None:
-        scale = 1
-    else:
-        with PIL.Image.open(img_files[bbox["index"]]) as img:
-            img_width, img_height = img.size
-            logging.debug("img.size: %s", img.size)
-            scale = (img_width / bbox["width"]) * (dpi / img.info["dpi"][0])
-            logging.debug("scale: %s", scale)
-
     magick = get_magick_cmd()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workdir = Path(tmpdir)
         page_pdf_files = []
-        for i, (src_img, src_hocr) in enumerate(zip(img_files, hocr_files)):
+        for i, (src_img, src_hocr) in enumerate(
+            zip(img_files, hocr_files), start=1
+        ):
             doc = hocrdoc.HocrDocument(src_hocr)
             logging.debug("hocr doc: %s", repr(doc))
 
@@ -364,17 +358,7 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
             logging.debug("hocr-pdf output: %s", output)
             page_pdf_files.append(page_pdf)
 
-        tmp_pdf_file = workdir / "tmp.pdf"
-
-        merge_pdfs(page_pdf_files, tmp_pdf_file, tmpdir=workdir)
-
-        # Remove metadata from pdf
-        output = run_command(["exiftool", "-q", "-all:all=", tmp_pdf_file])
-        logging.debug("exiftool output: %s", output)
-
-        # make exiftool changes irreversible
-        output = run_command(["qpdf", "--linearize", tmp_pdf_file, output_file])
-        logging.debug("qpdf output: %s", output)
+        merge_pdfs(page_pdf_files, output_file, tmpdir=tmpdir)
 
 
 def generate_pdfs(img_files, hocr_files, output_base):
@@ -445,9 +429,8 @@ def merge_pdfs(input_files, output_file, tmpdir=None, keep_sources=True):
     Raises:
         RuntimeError:
             - If no suitable PDF merge tool is found (`qpdf`, `pdftk`, or `pdfbox`).
-            - If any merge command fails.
-            - If moving or deleting files fails.
-        subprocess.CalledProcessError:
+            - If deleting files fails.
+        SystemExit:
             If the underlying merge command returns a non-zero exit code.
 
     Notes:
@@ -472,7 +455,10 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
 
     Detects available tool (qpdf/pdftk/pdfbox), runs merge, and cleans up.
     """
-    tmp_file = Path(tmpdir) / Path(output_file).name
+    tmp_path = Path(tmpdir)
+    basename = Path(output_file).stem
+    tmp_file_merged = tmp_path / f"{basename}_merged.pdf"
+    tmp_file_opt = tmp_path / f"{basename}_optimized.pdf"
     host = socket.gethostname()
 
     qpdf = shutil.which("qpdf")
@@ -482,59 +468,54 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
     jar_names = ["pdfbox", "pdfbox-tools", "commons-logging"]
     pdfbox_jars = [Path(f"/usr/share/java/{name}.jar") for name in jar_names]
 
-    try:
-        if qpdf:
-            logging.debug("Using qpdf for merge")
-            cmd = [
-                qpdf,
-                "--empty",
-                "--pages",
-                *input_files,
-                "--",
-                str(tmp_file),
-            ]
+    if qpdf:
+        logging.debug("Using qpdf for merge")
+        cmd = [qpdf, "--empty", "--pages", *input_files, "--", tmp_file_merged]
 
-        elif pdftk:
-            logging.debug("Using pdftk for merge")
-            cmd = [pdftk, *input_files, "cat", "output", str(tmp_file)]
+    elif pdftk:
+        logging.debug("Using pdftk for merge")
+        cmd = [pdftk, *input_files, "cat", "output", tmp_file_merged]
 
-        elif java_bin and all(jar.exists() for jar in pdfbox_jars):
-            logging.debug("Using PDFBox for merge")
-            classpath = ":".join(str(jar) for jar in pdfbox_jars)
-            cmd = [
-                java_bin,
-                "-Xms512m",
-                "-Xmx512m",
-                "-cp",
-                classpath,
-                "org.apache.pdfbox.tools.PDFMerger",
-                *input_files,
-                str(tmp_file),
-            ]
+    elif java_bin and all(jar.exists() for jar in pdfbox_jars):
+        logging.debug("Using PDFBox for merge")
+        classpath = ":".join(str(jar) for jar in pdfbox_jars)
+        cmd = [
+            java_bin,
+            "-Xms512m",
+            "-Xmx512m",
+            "-cp",
+            classpath,
+            "org.apache.pdfbox.tools.PDFMerger",
+            *input_files,
+            tmp_file_merged,
+        ]
 
-        else:
-            msg = "No available PDF merge tool (qpdf, pdftk, or PDFBox)."
-            logging.error(msg)
-            raise RuntimeError(msg)
+    else:
+        msg = "No available PDF merge tool (qpdf, pdftk, or PDFBox)."
+        logging.error(msg)
+        raise RuntimeError(msg)
 
-        output = run_command(cmd)
-        logging.debug("%s output: %s", Path(cmd[0]).name, output)
+    output = run_command(cmd)
+    logging.debug("%s output: %s", Path(cmd[0]).name, output)
 
-        logging.debug("Moving %s to %s:%s", tmp_file, host, output_file)
-        shutil.move(str(tmp_file), output_file)
+    # Remove metadata from pdf
+    output = run_command(["exiftool", "-q", "-all:all=", tmp_file_merged])
+    logging.debug("exiftool output: %s", output)
 
-        if not keep_sources:
-            for file in input_files:
-                try:
-                    os.unlink(file)
-                    logging.debug("Deleted intermediate file: %s", file)
-                except OSError as e:
-                    raise RuntimeError(f"Can't unlink {file}: {e}")
-        else:
-            logging.debug("Keeping source files: %s", ", ".join(input_files))
+    # make exiftool changes irreversible
+    output = run_command([qpdf, "--linearize", tmp_file_merged, tmp_file_opt])
+    logging.debug("qpdf output: %s", output)
 
-    except subprocess.CalledProcessError as e:
-        raise RuntimeError(f"PDF merge failed: {e}")
+    logging.debug("Moving %s to %s:%s", tmp_file_opt, host, output_file)
+    shutil.move(tmp_file_opt, output_file)
+
+    if not keep_sources:
+        for file in input_files:
+            try:
+                os.unlink(file)
+                logging.debug("Deleted intermediate file: %s", file)
+            except OSError as e:
+                raise RuntimeError(f"Can't unlink {file}: {e}")
 
 
 def extract_zip(zip_path, dirpath):
