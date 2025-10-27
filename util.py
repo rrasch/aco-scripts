@@ -414,22 +414,47 @@ def merge_pdfs(input_files, output_file, tmpdir=None, keep_sources=True):
     """
     Merge multiple PDF files into a single output PDF.
 
-    Uses `pdftk` if available, otherwise falls back to Apache PDFBox via Java.
-    If neither is available, raises a RuntimeError. After merging, moves the
-    temporary file to the final destination and optionally deletes the source PDFs.
+    The function automatically detects and uses the first available merge tool
+    in this order of preference:
+        1. qpdf
+        2. pdftk
+        3. Apache PDFBox (via Java)
+
+    If none of these tools are available, a RuntimeError is raised.
+
+    A temporary file is created in a working directory during the merge. If
+    `tmpdir` is not provided, a temporary directory is automatically created and
+    cleaned up when the function exits. The merged PDF is moved to `output_file`
+    after successful completion.
 
     Args:
-        input_files (list[str]): List of input PDF file paths.
-        output_file (str): Path to the final merged PDF file.
-        tmpdir (str | None): Temporary directory to use. If None, a temporary
-            directory is created and automatically cleaned up.
-        keep_sources (bool): If True, retain the input PDFs after merging (default: True).
+        input_files (list[str] | list[pathlib.Path]):
+            A list of input PDF file paths to merge, in order.
+        output_file (str | pathlib.Path):
+            Path to the final merged PDF file.
+        tmpdir (str | pathlib.Path | None, optional):
+            Directory to use for temporary files. If None, a temporary directory
+            is created and automatically deleted when done.
+        keep_sources (bool, optional):
+            If True (default), keep the original PDF files after merging.
+            If False, the input files are deleted after a successful merge.
 
     Returns:
-        str: The path to the merged output file.
+        str: The path to the merged output PDF.
 
     Raises:
-        RuntimeError: If no PDF merge tool is available or the merge fails.
+        RuntimeError:
+            - If no suitable PDF merge tool is found (`qpdf`, `pdftk`, or `pdfbox`).
+            - If any merge command fails.
+            - If moving or deleting files fails.
+        subprocess.CalledProcessError:
+            If the underlying merge command returns a non-zero exit code.
+
+    Notes:
+        - Uses the command-line tools `qpdf`, `pdftk`, or Java’s PDFBox library.
+        - The function logs which tool is used and key steps like file movement
+          and cleanup using Python’s standard `logging` module.
+        - The hostname of the current system is logged for traceability.
     """
     # Use provided tmpdir or create an automatic temporary directory
     if tmpdir is None:
@@ -443,36 +468,38 @@ def merge_pdfs(input_files, output_file, tmpdir=None, keep_sources=True):
 
 
 def _do_merge(input_files, output_file, tmpdir, keep_sources):
-    """Internal helper to perform the merge logic."""
+    """Helper for merge_pdfs().
+
+    Detects available tool (qpdf/pdftk/pdfbox), runs merge, and cleans up.
+    """
     tmp_file = Path(tmpdir) / Path(output_file).name
     host = socket.gethostname()
 
+    qpdf = shutil.which("qpdf")
     pdftk = shutil.which("pdftk")
     java_bin = shutil.which("java")
 
     jar_names = ["pdfbox", "pdfbox-tools", "commons-logging"]
     pdfbox_jars = [Path(f"/usr/share/java/{name}.jar") for name in jar_names]
 
-    # Verify tool availability
-    if not pdftk:
-        if not java_bin:
-            logging.error(
-                "Neither 'pdftk' nor 'java' is available on this system."
-            )
-            raise RuntimeError(
-                "No PDF merge tool found (pdftk or Java PDFBox required)."
-            )
-        if not all(jar.exists() for jar in pdfbox_jars):
-            missing = [jar.name for jar in pdfbox_jars if not jar.exists()]
-            logging.error(
-                "Missing required PDFBox jars: %s", ", ".join(missing)
-            )
-            raise RuntimeError(f"Missing PDFBox jars: {', '.join(missing)}")
-
     try:
-        if pdftk:
+        if qpdf:
+            logging.debug("Using qpdf for merge")
+            cmd = [
+                qpdf,
+                "--empty",
+                "--pages",
+                *input_files,
+                "--",
+                str(tmp_file),
+            ]
+
+        elif pdftk:
+            logging.debug("Using pdftk for merge")
             cmd = [pdftk, *input_files, "cat", "output", str(tmp_file)]
-        else:
+
+        elif java_bin and all(jar.exists() for jar in pdfbox_jars):
+            logging.debug("Using PDFBox for merge")
             classpath = ":".join(str(jar) for jar in pdfbox_jars)
             cmd = [
                 java_bin,
@@ -485,8 +512,13 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
                 str(tmp_file),
             ]
 
-        logging.debug("Running command: %s", " ".join(cmd))
-        subprocess.run(cmd, check=True)
+        else:
+            msg = "No available PDF merge tool (qpdf, pdftk, or PDFBox)."
+            logging.error(msg)
+            raise RuntimeError(msg)
+
+        output = run_command(cmd)
+        logging.debug("%s output: %s", Path(cmd[0]).name, output)
 
         logging.debug("Moving %s to %s:%s", tmp_file, host, output_file)
         shutil.move(str(tmp_file), output_file)
@@ -497,15 +529,12 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
                     os.unlink(file)
                     logging.debug("Deleted intermediate file: %s", file)
                 except OSError as e:
-                    logging.error("Can't unlink %s: %s", file, e)
                     raise RuntimeError(f"Can't unlink {file}: {e}")
         else:
             logging.debug("Keeping source files: %s", ", ".join(input_files))
 
     except subprocess.CalledProcessError as e:
         raise RuntimeError(f"PDF merge failed: {e}")
-    except Exception as e:
-        raise RuntimeError(f"Error during PDF merge: {e}")
 
 
 def extract_zip(zip_path, dirpath):
