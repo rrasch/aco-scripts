@@ -4,7 +4,6 @@ from pathlib import Path
 import PIL.Image
 import argparse
 import concurrent.futures
-import hocrdoc
 import logging
 import os
 import re
@@ -156,8 +155,6 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
 
     output = run_command([
         "hocr-pdf",
-        "--scale-hocr",
-        scale,
         "--reverse",
         "--savefile",
         output_file,
@@ -180,7 +177,32 @@ def calc_scale(img_path, bbox_width, target_dpi):
     return scale
 
 
-def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
+def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
+    """Process a single page: resample image and symlink hOCR."""
+    dst_img, dst_hocr = (
+        Path(workdir) / f"{page_num}.{ext}" for ext in ("jpg", "hocr")
+    )
+
+    run_command([
+        magick,
+        src_img + "[0]",
+        "-resample",
+        str(dpi),
+        "-strip",
+        dst_img,
+    ])
+
+    os.symlink(src_hocr, dst_hocr)
+
+
+def generate_pdf(
+    img_files,
+    hocr_files,
+    output_file,
+    dpi=200,
+    max_workers=None,
+    use_processes=False,
+):
     """
     Generate a searchable PDF from image and hOCR files using hocr-pdf.
 
@@ -188,12 +210,6 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
     files into a single searchable PDF. Each image is resampled to a target
     DPI, stripped of metadata, and paired with its matching hOCR file before
     being passed to `hocr-pdf` for conversion.
-
-    The function determines the correct scaling factor to align hOCR text
-    coordinates with the resampled image dimensions. It does this by comparing
-    the bounding box dimensions from the first valid hOCR entry against the
-    corresponding image size and DPI. The computed scaling factor is passed to
-    `hocr-pdf` via the `--scale-hocr` option.
 
     All intermediate files are created in a temporary working directory to
     ensure isolation and automatic cleanup after processing. The resulting
@@ -204,6 +220,12 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
         hocr_files (list[str]): Paths to hOCR files corresponding to each image.
         output_file (str): Path where the final searchable PDF will be written.
         dpi (int, optional): Target DPI for image resampling. Defaults to 200.
+        max_workers (int, optional): Maximum number of threads or
+            processes to use. Defaults to CPU count × 2 (capped at 32).
+        use_processes (bool, optional): If True, uses
+            ProcessPoolExecutor for CPU-heavy Python work; otherwise
+            ThreadPoolExecutor (default, ideal for subprocess-heavy
+            tasks).
 
     Raises:
         ValueError: If the number of image and hOCR files differ, or if no valid
@@ -214,8 +236,9 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
     Returns:
         None
     """
-    if os.path.isfile(output_file):
-        logging.warning("File %s already exists", output_file)
+    output_path = Path(output_file).resolve()
+    if output_path.is_file():
+        logging.warning("File %s already exists", output_path)
         return
 
     if len(img_files) != len(hocr_files):
@@ -227,57 +250,90 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
     if not img_files:
         raise ValueError("No image or hocr files")
 
-    bbox = get_first_valid_bbox(hocr_files)
-    logging.debug("bbox: %s", bbox)
-
-    if bbox is None:
-        scale = 1
-    else:
-        with PIL.Image.open(img_files[bbox["index"]]) as img:
-            img_width, img_height = img.size
-            logging.debug("img.size: %s", img.size)
-            scale = (img_width / bbox["width"]) * (dpi / img.info["dpi"][0])
-            logging.debug("scale: %s", scale)
-
     magick = get_magick_cmd()
 
-    with tempfile.TemporaryDirectory() as workdir:
-        for i, (img, hocr) in enumerate(zip(img_files, hocr_files)):
-            root = os.path.join(workdir, f"{i:06}")
-            output = run_command([
-                magick,
-                img + "[0]",
-                "-resample",
-                str(dpi),
-                "-strip",
-                root + ".jpg",
-            ])
-            logging.debug("magick output: %s", output)
-            os.symlink(hocr, root + ".hocr")
+    if max_workers is None:
+        max_workers = min(32, (os.cpu_count() or 1) * 2)
 
-        tmp_pdf_file = os.path.join(workdir, "tmp.pdf")
+    ExecutorClass = (
+        concurrent.futures.ProcessPoolExecutor
+        if use_processes
+        else concurrent.futures.ThreadPoolExecutor
+    )
+
+    with tempfile.TemporaryDirectory(delete=False) as tmpdir:
+        tmp_path = Path(tmpdir)
+        with ExecutorClass(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(
+                    process_page,
+                    src_img,
+                    src_hocr,
+                    f"{i:06}",
+                    tmpdir,
+                    magick,
+                    dpi,
+                )
+                for i, (src_img, src_hocr) in enumerate(
+                    zip(img_files, hocr_files), start=1
+                )
+            ]
+
+            if TQDM_AVAILABLE:
+                futures_iter = tqdm(
+                    concurrent.futures.as_completed(futures),
+                    total=len(futures),
+                    desc="Processing pages",
+                )
+            else:
+                futures_iter = concurrent.futures.as_completed(futures)
+
+            for future in futures_iter:
+                result = future.result()
+                logging.debug("future result: %s", result)
+
+        basename = output_path.stem
+        tmp_file_orig = tmp_path / f"{basename}_orig.pdf"
+        tmp_file_exif = tmp_path / f"{basename}_exif.pdf"
+        tmp_file_qpdf = tmp_path / f"{basename}_qpdf.pdf"
 
         output = run_command([
             "hocr-pdf",
-            "--scale-hocr",
-            f"{scale:.3f}",
+            "--debug",
             "--reverse",
             "--savefile",
-            tmp_pdf_file,
-            workdir,
+            tmp_file_orig,
+            tmpdir,
         ])
         logging.debug("hocr-pdf output: %s", output)
 
+        host = socket.gethostname()
+
         # Remove metadata from pdf
-        output = run_command(["exiftool", "-q", "-all:all=", tmp_pdf_file])
+        output = run_command([
+            "exiftool",
+            "-q",
+            "-all:all=",
+            "-o",
+            tmp_file_exif,
+            tmp_file_orig,
+        ])
         logging.debug("exiftool output: %s", output)
 
         # make exiftool changes irreversible
-        output = run_command(["qpdf", "--linearize", tmp_pdf_file, output_file])
+        output = run_command([
+            "qpdf",
+            "--linearize",
+            tmp_file_exif,
+            tmp_file_qpdf,
+        ])
         logging.debug("qpdf output: %s", output)
 
+        logging.debug("Moving %s to %s:%s", tmp_file_qpdf, host, output_path)
+        shutil.move(tmp_file_qpdf, output_file)
 
-def generate_pdf(img_files, hocr_files, output_file, dpi=200):
+
+def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
     """
     Generate a searchable PDF from image and hOCR files using hocr-pdf.
 
@@ -285,12 +341,6 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
     files into a single searchable PDF. Each image is resampled to a target
     DPI, stripped of metadata, and paired with its matching hOCR file before
     being passed to `hocr-pdf` for conversion.
-
-    The function determines the correct scaling factor to align hOCR text
-    coordinates with the resampled image dimensions. It does this by comparing
-    the bounding box dimensions from the first valid hOCR entry against the
-    corresponding image size and DPI. The computed scaling factor is passed to
-    `hocr-pdf` via the `--scale-hocr` option.
 
     All intermediate files are created in a temporary working directory to
     ensure isolation and automatic cleanup after processing. The resulting
@@ -332,14 +382,6 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
         for i, (src_img, src_hocr) in enumerate(
             zip(img_files, hocr_files), start=1
         ):
-            doc = hocrdoc.HocrDocument(src_hocr)
-            logging.debug("hocr doc: %s", repr(doc))
-
-            if doc.bbox:
-                scale = calc_scale(src_img, doc.bbox["width"], dpi)
-            else:
-                scale = 1.0
-
             page_num = f"{i:06}"
             page_dir = workdir / page_num
             page_dir.mkdir()
@@ -357,70 +399,17 @@ def generate_pdf(img_files, hocr_files, output_file, dpi=200):
             logging.debug("magick output: %s", output)
             os.symlink(src_hocr, dst_hocr)
 
-            if doc.lang is None or doc.lang == "ar":
-                extra_args = ["--reverse"]
-            else:
-                extra_args = []
-
             output = run_command([
                 "hocr-pdf",
-                "--scale-hocr",
-                f"{scale:.3f}",
+                "--reverse",
                 "--savefile",
                 page_pdf,
-                *extra_args,
                 page_dir,
             ])
             logging.debug("hocr-pdf output: %s", output)
             page_pdf_files.append(page_pdf)
 
         merge_pdfs(page_pdf_files, output_file, tmpdir=tmpdir)
-
-
-def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
-    """Process a single page: resample image, symlink hOCR, create PDF."""
-    doc = hocrdoc.HocrDocument(src_hocr)
-    logging.debug("hocr doc: %s", repr(doc))
-
-    if doc.bbox:
-        scale = calc_scale(src_img, doc.bbox["width"], dpi)
-    else:
-        scale = 1.0
-
-    page_dir = workdir / page_num
-    page_dir.mkdir()
-
-    dst_img, dst_hocr, page_pdf = (
-        page_dir / f"{page_num}.{ext}" for ext in ("jpg", "hocr", "pdf")
-    )
-
-    run_command([
-        magick,
-        src_img + "[0]",
-        "-resample",
-        str(dpi),
-        "-strip",
-        dst_img,
-    ])
-
-    os.symlink(src_hocr, dst_hocr)
-
-    if doc.lang is None or doc.lang == "ar":
-        extra_args = ["--reverse"]
-    else:
-        extra_args = []
-
-    run_command([
-        "hocr-pdf",
-        "--scale-hocr",
-        f"{scale:.3f}",
-        "--savefile",
-        page_pdf,
-        *extra_args,
-        page_dir,
-    ])
-
-    return page_pdf
 
 
 def generate_pdf_parallel(
@@ -439,13 +428,6 @@ def generate_pdf_parallel(
     hOCR files into a single searchable PDF. Each image is resampled to
     a target DPI, stripped of metadata, and paired with its matching
     hOCR file before being passed to `hocr-pdf` for conversion.
-
-    The function determines the correct scaling factor to align hOCR
-    text coordinates with the resampled image dimensions. It does this
-    by comparing the bounding box dimensions from the first valid hOCR
-    entry against the corresponding image size and DPI. The computed
-    scaling factor is passed to `hocr-pdf` via the `--scale-hocr`
-    option.
 
     All intermediate files are created in a temporary working directory
     to ensure isolation and automatic cleanup after processing. The
@@ -679,7 +661,7 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
     output = run_command([qpdf, "--linearize", tmp_file_merged, tmp_file_opt])
     logging.debug("qpdf output: %s", output)
 
-    logging.debug("Moving %s to %s:%s", tmp_file_opt, host, output_path)
+    logging.debug("Moving %s to %s:%s", tmp_file_opt, host, output_file)
     shutil.move(tmp_file_opt, output_file)
 
     if not keep_sources:
