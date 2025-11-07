@@ -66,7 +66,9 @@ from pathlib import Path
 import argparse
 import configparser
 import csv
+import hashlib
 import logging
+import re
 import rename_yaiglobal_ocr as ryo
 import shutil
 import subprocess
@@ -75,9 +77,7 @@ import util
 import zipfile
 
 
-class ZipCountValidationError(Exception):
-    """Raised when ZIP files and CSV entries do not match."""
-
+class ValidationError(Exception):
     pass
 
 
@@ -216,6 +216,195 @@ def get_batch_csv(s3_bucket: str, batch_id: str, outbox: Path):
     return csv_path
 
 
+def create_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
+    """
+    Create checksum and metadata files for all files in dirpath.
+
+    Produces two files:
+
+      CHECKSUMS.txt   - POSIX-compatible hash list
+      CACHEINFO.txt   - Optional metadata: file size + mtime
+
+    Args:
+        dirpath (Path): Directory containing batch files.
+        hash_algo (str): Hash algorithm to use (default: sha256).
+    """
+    checksum_file = dirpath / "CHECKSUMS.txt"
+    info_file = dirpath / "CACHEINFO.txt"
+    hasher_ctor = getattr(hashlib, hash_algo)
+
+    logging.info("Creating checksum files for %s...", dirpath)
+
+    with (
+        checksum_file.open("w", encoding="utf-8") as cksum,
+        info_file.open("w", encoding="utf-8") as info,
+    ):
+
+        for file in sorted(dirpath.glob("*")):
+            if not file.is_file():
+                continue
+            if file.name in ("CHECKSUMS.txt", "CACHEINFO.txt"):
+                continue
+
+            hasher = hasher_ctor()
+            with file.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(8192), b""):
+                    hasher.update(chunk)
+
+            digest = hasher.hexdigest()
+            cksum.write(f"{digest}  {file.name}\n")
+
+            stat = file.stat()
+            info.write(
+                f"{file.name}  size={stat.st_size}  mtime={stat.st_mtime}\n"
+            )
+
+    logging.info("✅ Wrote CHECKSUMS.txt and CACHEINFO.txt in %s", dirpath)
+    return checksum_file
+
+
+def verify_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
+    """
+    Verify integrity of dirpath using CHECKSUMS.txt and optional
+    CACHEINFO.txt.
+
+    Args:
+        dirpath (Path): Directory to verify.
+        hash_algo (str): Hash algorithm used at checksum creation.
+
+    Raises:
+        ValidationError: On missing files, bad checksums or size
+                         mismatches.
+    """
+    checksum_file = dirpath / "CHECKSUMS.txt"
+    info_file = dirpath / "CACHEINFO.txt"
+    hasher_ctor = getattr(hashlib, hash_algo)
+
+    if not checksum_file.exists():
+        raise ValidationError(f"Checksum file missing in {dirpath}")
+
+    mismatches = []
+    sizes_expected = {}
+
+    if info_file.exists():
+        logging.debug("Using CACHEINFO.txt for size verification.")
+        with info_file.open("r", encoding="utf-8") as f:
+            for line in f:
+                m = re.match(r"^(\S+)\s+size=(\d+)", line.strip())
+                if m:
+                    fname, fsize = m.groups()
+                    sizes_expected[fname] = int(fsize)
+
+    with checksum_file.open("r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split(maxsplit=1)
+            if len(parts) != 2:
+                continue
+            expected, filename = parts
+            file_path = dirpath / filename
+
+            if not file_path.exists():
+                mismatches.append(f"Missing file: {filename}")
+                continue
+
+            hasher = hasher_ctor()
+            with file_path.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(8192), b""):
+                    hasher.update(chunk)
+            actual = hasher.hexdigest()
+
+            if actual != expected:
+                mismatches.append(f"Checksum mismatch: {filename}")
+
+            if filename in sizes_expected:
+                actual_size = file_path.stat().st_size
+                expected_size = sizes_expected[filename]
+                if actual_size != expected_size:
+                    mismatches.append(
+                        f"Size mismatch: {filename} "
+                        f"(expected {expected_size}, got {actual_size})"
+                    )
+
+    if mismatches:
+        for m in mismatches:
+            logging.error(m)
+        raise ValidationError(
+            f"Integrity check failed for {dirpath}:\n" + "\n".join(mismatches)
+        )
+
+    logging.info("✅ Directory integrity verified: %s", dirpath)
+
+
+def fetch_batch_files(
+    s3_bucket: str, batch_id: str, outbox: Path, cache_root: Path
+):
+    """
+    Fetch batch files into cache, verify them, then copy to outbox and
+    verify again.
+
+    Ensures outbox contains only complete and validated data.
+    """
+    batch_name = f"batch{batch_id}"
+    cache_dir = cache_root / batch_name
+    tmp_dir = cache_root / f"{batch_name}.tmp"
+    csv_name = f"{batch_name}.csv"
+
+    outbox.mkdir(parents=True, exist_ok=True)
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    if tmp_dir.exists():
+        logging.warning("Removing stale cache temp: %s", tmp_dir)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    csv_cache = cache_dir / csv_name
+    zip_files = list(cache_dir.glob("*.zip"))
+    cache_ready = csv_cache.exists() and len(zip_files) > 0
+
+    if cache_ready:
+        logging.info("Cache found for %s — verifying...", batch_name)
+        verify_directory_checksum(cache_dir)
+    else:
+        logging.info("Building cache for %s from S3...", batch_name)
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        run([
+            "aws",
+            "s3",
+            "sync",
+            f"{s3_bucket}/outbox/{batch_name}/",
+            str(tmp_dir),
+            "--profile",
+            "yaiglobal",
+        ])
+
+        csv_path = tmp_dir / csv_name
+
+        run([
+            "aws",
+            "s3",
+            "cp",
+            f"{s3_bucket}/batches/{batch_name}.csv",
+            str(csv_path),
+            "--profile",
+            "yaiglobal",
+        ])
+
+        confirm_zip_count(tmp_dir, csv_path)
+
+        tmp_dir.rename(cache_dir)
+        logging.info("✅ Cache built: %s", cache_dir)
+
+        create_directory_checksum(cache_dir)
+
+    for file in cache_dir.glob("*"):
+        shutil.copy2(file, outbox)
+
+    logging.info("Verifying outbox integrity: %s", outbox)
+    verify_directory_checksum(outbox)
+
+    logging.info("✅ Outbox ready: %s", outbox)
+
+
 def confirm_zip_count(outbox: Path, csv_path: Path):
     """
     Step 4: Confirm that the number of ZIP files in the outbox matches
@@ -230,8 +419,8 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
         list[str]: Sorted list of verified bookids (without ".zip").
 
     Raises:
-        ZipCountValidationError: If any mismatch, encoding error, or
-                                 structural CSV issue is detected.
+        ValidationError: If any mismatch, encoding error, or
+                         structural CSV issue is detected.
     """
     id_col = "identifier"
 
@@ -249,11 +438,9 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
             with csv_path.open(newline="", encoding=enc) as f:
                 reader = csv.DictReader(f)
                 if not reader.fieldnames:
-                    raise ZipCountValidationError(
-                        f"CSV missing headers in {csv_path}."
-                    )
+                    raise ValidationError(f"CSV missing headers in {csv_path}.")
                 if id_col not in reader.fieldnames:
-                    raise ZipCountValidationError(
+                    raise ValidationError(
                         f"CSV missing required '{id_col}' column in {csv_path}."
                     )
 
@@ -272,7 +459,7 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
             continue  # Try the next encoding
 
     else:
-        raise ZipCountValidationError(
+        raise ValidationError(
             f"Unable to parse {csv_path} using common encodings"
         )
 
@@ -304,7 +491,7 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
             )
         message = "\n".join(msg_lines)
         logging.error(message)
-        raise ZipCountValidationError(message)
+        raise ValidationError(message)
 
     logging.info(
         "✅ ZIP files and CSV entries match exactly (encoding: %s).",
@@ -326,21 +513,34 @@ def unzip_to_processing(outbox: Path, processing: Path):
 
 
 def validate_file_counts(processing: Path):
-    """Ensure HTML and TXT file counts match for each digitization ID."""
+    """
+    Ensure HTML and TXT file counts match for each digitization ID.
+
+    Raises:
+        ValidationError: If any directory contains mismatched counts.
+    """
+    mismatches = []
+
     for d in sorted(processing.iterdir()):
         if d.is_dir():
             htmls = list(d.glob("*.html"))
             txts = list(d.glob("*.txt"))
             if len(htmls) != len(txts):
-                logging.warning(
-                    "Count mismatch in %s: %d html vs %d txt",
-                    d.name,
-                    len(htmls),
-                    len(txts),
+                msg = (
+                    f"Count mismatch in {d.name}: "
+                    f"{len(htmls)} html vs {len(txts)} txt"
                 )
+                logging.error(msg)
+                mismatches.append(msg)
             else:
                 logging.debug("Counts OK for %s: %d each", d.name, len(htmls))
-    logging.info("File count validation complete.")
+
+    if mismatches:
+        raise ValidationError(
+            "File count validation failed:\n" + "\n".join(mismatches)
+        )
+
+    logging.info("✅ File count validation passed for %s", processing)
 
 
 def rename_files(digitization_dir: Path, dmaker_files):
@@ -375,10 +575,10 @@ def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
     logging.info("Starting YaiGlobal batch processing: %s", batch_id)
 
     outbox, processing = create_batch_dirs(root, batch_id)
-    sync_s3_batch(s3_bucket, batch_id, outbox)
-    csv_path = get_batch_csv(s3_bucket, batch_id, outbox)
-    csv_path = Path("batch0000.csv")
-    confirm_zip_count(outbox, csv_path)
+
+    cache_dir = Path.home() / ".cache" / "yaiglobal"
+    fetch_batch_files(s3_bucket, batch_id, outbox, cache_dir)
+
     unzip_to_processing(outbox, processing)
     validate_file_counts(processing)
 
@@ -389,12 +589,6 @@ def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
         dmaker_path = Path(
             f"/content/prod/rstar/content/{partner}/aco/wip/se/{d.name}/data"
         )
-        dmaker_files = sorted(dmaker_path.glob("*_d.tif"))
-        if not dmaker_files:
-            logging.warning("No dmaker files found for %s", d.name)
-            continue
-        # rename_files(d, dmaker_files)
-        # generate_pdfs(d, dmaker_files)
         dmaker_imgs, hocr_files = ryo.rename_files(dmaker_path, d)
         util.generate_pdfs(dmaker_imgs, hocr_files, output_dir / d.name)
 

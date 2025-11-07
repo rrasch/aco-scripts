@@ -177,13 +177,28 @@ def calc_scale(img_path, bbox_width, target_dpi):
     return scale
 
 
+def get_max_workers():
+    """
+    Determine a reasonable number of worker processes for parallel tasks.
+
+    This returns the number of CPU cores minus one, with a minimum of one
+    worker. This helps avoid saturating the system while still providing
+    parallelism.
+
+    Returns:
+        int: Recommended number of worker processes.
+    """
+    max_workers = max((os.cpu_count() or 1) - 1, 1)
+    return max_workers
+
+
 def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
     """Process a single page: resample image and symlink hOCR."""
     dst_img, dst_hocr = (
         Path(workdir) / f"{page_num}.{ext}" for ext in ("jpg", "hocr")
     )
 
-    run_command([
+    output = run_command([
         magick,
         src_img + "[0]",
         "-resample",
@@ -191,8 +206,12 @@ def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
         "-strip",
         dst_img,
     ])
+    logging.debug("ImageMagick output: %s", output)
 
+    logging.debug("Creating symlink: %s -> %s", src_hocr, dst_hocr)
     os.symlink(src_hocr, dst_hocr)
+
+    return src_hocr, dst_hocr
 
 
 def generate_pdf(
@@ -228,8 +247,8 @@ def generate_pdf(
             tasks).
 
     Raises:
-        ValueError: If the number of image and hOCR files differ, or if no valid
-            bounding box can be extracted from the hOCR files.
+        ValueError: If the number of image and hOCR files differ, or if no
+            image or hOCR files found.
         RuntimeError: If any external command (ImageMagick, hocr-pdf, exiftool,
             or qpdf) fails during execution.
 
@@ -253,7 +272,7 @@ def generate_pdf(
     magick = get_magick_cmd()
 
     if max_workers is None:
-        max_workers = min(32, (os.cpu_count() or 1) * 2)
+        max_workers = get_max_workers()
 
     ExecutorClass = (
         concurrent.futures.ProcessPoolExecutor
@@ -261,7 +280,7 @@ def generate_pdf(
         else concurrent.futures.ThreadPoolExecutor
     )
 
-    with tempfile.TemporaryDirectory(delete=False) as tmpdir:
+    with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
         with ExecutorClass(max_workers=max_workers) as executor:
             futures = [
@@ -297,12 +316,17 @@ def generate_pdf(
         tmp_file_exif = tmp_path / f"{basename}_exif.pdf"
         tmp_file_qpdf = tmp_path / f"{basename}_qpdf.pdf"
 
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            extra_args = ["--debug"]
+        else:
+            extra_args = []
+
         output = run_command([
             "hocr-pdf",
-            "--debug",
             "--reverse",
             "--savefile",
             tmp_file_orig,
+            *extra_args,
             tmpdir,
         ])
         logging.debug("hocr-pdf output: %s", output)
@@ -471,7 +495,7 @@ def generate_pdf_parallel(
     magick = get_magick_cmd()
 
     if max_workers is None:
-        max_workers = min(32, (os.cpu_count() or 1) * 2)
+        max_workers = get_max_workers()
 
     ExecutorClass = (
         concurrent.futures.ProcessPoolExecutor
