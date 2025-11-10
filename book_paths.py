@@ -49,19 +49,29 @@ def get_book_dirs(book_ids):
         if not wip_dir.exists():
             raise BookDirError(f"Missing wip_dir: {wip_dir}")
 
+        data_dir = wip_dir / "data"
+        if not data_dir.exists():
+            raise BookDirError(f"Missing data_dir: {data_dir}")
+
+        aux_dir = wip_dir / "aux"
+        if not aux_dir.exists():
+            raise BookDirError(f"Missing aux_dir: {aux_dir}")
+
         results[book_id] = {
             "partner": partner,
             "collection": collection,
             "rstar_dir": rstar_dir,
             "wip_dir": wip_dir,
+            "data_dir": data_dir,
+            "aux_dir": aux_dir,
         }
 
     return results
 
 
-def get_dmaker_images(wip_dir):
+def get_dmaker_images(data_dir):
     """
-    Return a sorted list of all dmaker images in the wip_dir.
+    Return a sorted list of all dmaker images in the data_dir.
     Dmaker images are files ending with '_d.tif'.
     """
-    return sorted(wip_dir.glob("*_d.tif"))
+    return sorted(data_dir.glob("*_d.tif"))
