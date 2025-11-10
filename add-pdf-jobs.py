@@ -45,6 +45,8 @@ def main():
             "book_publisher:gen_all",
             "-r",
             str(rstar_dir),
+            "-e",
+            "-f",
             book_id,
         ]
 
