@@ -1,7 +1,10 @@
---- hocr-pdf	2025-10-30 22:01:23.725763892 -0400
-+++ /home/rasan/Downloads/hocr-tools-1.3.0/hocr-pdf	2025-11-06 22:21:28.164326364 -0500
-@@ -21,9 +21,11 @@
+--- /home/rasan/hocr-pdf	2025-10-30 22:01:23.725763892 -0400
++++ /home/rasan/Downloads/hocr-tools-1.3.0/hocr-pdf	2025-11-12 14:56:46.015490280 -0500
+@@ -19,11 +19,14 @@
+ 
+ import argparse
  import base64
++import functools
  import glob
  import io
 +import logging
@@ -12,7 +15,7 @@
  import zlib
  
  from bidi.algorithm import get_display
-@@ -48,14 +50,15 @@
+@@ -48,48 +51,56 @@
          sys.stdout.write(data)
  
  
@@ -30,7 +33,17 @@
      pdf = Canvas(savefile if savefile else StdoutWrapper(), pageCompression=1)
      pdf.setCreator('hocr-tools')
      pdf.setTitle(os.path.basename(playground))
-@@ -71,25 +74,35 @@
+-    dpi = default_dpi
+     for image in images:
+         im = Image.open(image)
+         w, h = im.size
+-        try:
+-            dpi = im.info['dpi'][0]
+-        except KeyError:
+-            pass
++        logging.debug("image dimensions (%s): %s", image, im.size)
++        dpi = im.info['dpi'][0]
+         width = w * 72 / dpi
          height = h * 72 / dpi
          pdf.setPageSize((width, height))
          pdf.drawImage(image, 0, 0, width=width, height=height)
@@ -57,7 +70,7 @@
 +    # Reverse Arabic words
 +    lang = get_language(hocr)
 +    logging.debug("language %s: %s", hocrfile, lang)
-+    if lang:
++    if reverse is None and lang:
 +        reverse = lang in ("ar", "ara", "arabic")
 +
 +    for line in hocr.xpath('//*[@class="ocr_line" or @class="ocrx_line"]'):
@@ -73,11 +86,16 @@
          xpath_elements = './/*[@class="ocrx_word"]'
          if (not (line.xpath('boolean(' + xpath_elements + ')'))):
              # if there are no words elements present,
-@@ -99,20 +112,26 @@
+@@ -99,20 +110,27 @@
              rawtext = word.text_content().strip()
              if rawtext == '':
                  continue
 -            font_width = pdf.stringWidth(rawtext, 'invisible', 8)
++            # if reverse:
++            #    rawtext = rawtext[::-1]
++            # rawtext = get_display(rawtext)
++            rawtext = fix_word(rawtext)
++
 +            box = p1.search(word.attrib['title']).group(1).split()
 +            box = [max(float(i), 0.0) for i in box]
 +            font_name = 'CourierNew'
@@ -100,17 +118,36 @@
 +            box_width = (box[2] - box[0]) * scale_to_pts
              text.setHorizScale(100.0 * box_width / font_width)
 -            rawtext = get_display(rawtext)
-+            # if reverse:
-+            #     rawtext = rawtext[::-1]
-+            # rawtext = get_display(rawtext)
-+            rawtext = fix_word(rawtext)
              text.textLine(rawtext)
              pdf.drawText(text)
  
-@@ -153,6 +172,122 @@
+@@ -153,6 +171,142 @@
      pdfmetrics.registerFont(TTFont('invisible', ttf))
  
  
++def trace(func):
++    """Log function call with repr-style arguments and return value."""
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        args_repr = [repr(a) for a in args]
++        kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
++        signature = ", ".join(args_repr + kwargs_repr)
++
++        logging.debug("Calling %s(%s)", func.__name__, signature)
++        result = func(*args, **kwargs)
++        logging.debug("%s returned %r", func.__name__, result)
++        return result
++    return wrapper
++
++
++def is_ubuntu():
++    try:
++        with open("/etc/os-release") as f:
++            return any("ID=ubuntu" in line for line in f)
++    except FileNotFoundError:
++        return False
++
++
 +def load_cour_font():
 +    if is_ubuntu():
 +        ttf_file = "/usr/share/fonts/truetype/msttcorefonts/cour.ttf"
@@ -139,6 +176,7 @@
 +    }
 +
 +
++@trace
 +def get_language(tree):
 +    """
 +    Returns the value of the <meta name="language" content="..."> tag
@@ -150,6 +188,7 @@
 +    return langs[0].strip().lower()
 +
 +
++@trace
 +def calc_scale_pts(hocr, dpi, img_width):
 +    """
 +    Calculate the scale factor to convert HOCR coordinates to PDF points.
@@ -177,14 +216,6 @@
 +    return scale
 +
 +
-+def is_ubuntu():
-+    try:
-+        with open("/etc/os-release") as f:
-+            return any("ID=ubuntu" in line for line in f)
-+    except FileNotFoundError:
-+        return False
-+
-+
 +# Split into directional/script runs:
 +#  - Arabic blocks (includes Arabic-Indic digits)
 +#  - Latin A–Z (covers English/French/Spanish letters)
@@ -198,12 +229,14 @@
 +)
 +
 +
++@trace
 +def _is_arabic_char(ch: str) -> bool:
 +    # Conservative: only reverse when unicode name contains "ARABIC"
 +    # (This leaves Latin and punctuation alone.)
 +    return "ARABIC" in unicodedata.name(ch, "")
 +
 +
++@trace
 +def fix_word(text: str) -> str:
 +    """
 +    Convert Google Vision's visual-order RTL runs to logical order,
@@ -215,6 +248,7 @@
 +    for ar, lat, num, other in _RUN_RE.findall(text or ""):
 +        if ar and all(_is_arabic_char(c) for c in ar):
 +            # Reverse ONLY Arabic runs: visual → logical
++            logging.debug("Arabic found: %s", ar[::-1])
 +            parts.append(ar[::-1])
 +        elif lat:
 +            parts.append(lat)   # leave Latin (French/Spanish/English) as-is
@@ -230,7 +264,7 @@
  if __name__ == "__main__":
      parser = argparse.ArgumentParser(
          description="Create a searchable PDF from a pile of hOCR and JPEG")
-@@ -166,7 +301,22 @@
+@@ -166,7 +320,26 @@
          "--savefile",
          help="Save to this file instead of outputting to stdout"
      )
@@ -247,8 +281,12 @@
 +    )
      args = parser.parse_args()
 +
++    script_name = os.path.basename(__file__)
 +    level = logging.DEBUG if args.debug else logging.WARNING
-+    logging.basicConfig(level=level)
++    logging.basicConfig(
++        format=f"%(asctime)s %(levelname)s {script_name}: %(message)s",
++        level=level,
++    )
 +
      if not os.path.isdir(args.imgdir):
          sys.exit(f"ERROR: Given path '{args.imgdir}' is not a directory")
