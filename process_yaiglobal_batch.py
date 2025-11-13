@@ -347,7 +347,6 @@ def fetch_batch_files(
     batch_name = f"batch{batch_id}"
     cache_dir = cache_root / batch_name
     tmp_dir = cache_root / f"{batch_name}.tmp"
-    csv_name = f"{batch_name}.csv"
 
     outbox.mkdir(parents=True, exist_ok=True)
     cache_root.mkdir(parents=True, exist_ok=True)
@@ -356,9 +355,8 @@ def fetch_batch_files(
         logging.warning("Removing stale cache temp: %s", tmp_dir)
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    csv_cache = cache_dir / csv_name
     zip_files = list(cache_dir.glob("*.zip"))
-    cache_ready = csv_cache.exists() and len(zip_files) > 0
+    cache_ready = len(zip_files) > 0
 
     if cache_ready:
         logging.info("Cache found for %s — verifying...", batch_name)
@@ -377,19 +375,7 @@ def fetch_batch_files(
             "yaiglobal",
         ])
 
-        csv_path = tmp_dir / csv_name
-
-        run([
-            "aws",
-            "s3",
-            "cp",
-            f"{s3_bucket}/batches/{batch_name}.csv",
-            str(csv_path),
-            "--profile",
-            "yaiglobal",
-        ])
-
-        confirm_zip_count(tmp_dir, csv_path)
+        remove_pattern(tmp_dir, "_lo")
 
         tmp_dir.rename(cache_dir)
         logging.info("✅ Cache built: %s", cache_dir)
@@ -508,6 +494,7 @@ def unzip_to_processing(outbox: Path, processing: Path):
         target_dir.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(zipfile_path, "r") as z:
             z.extractall(target_dir)
+        remove_pattern(target_dir, "_lo")
         logging.debug("Unzipped %s → %s", zipfile_path, target_dir)
     logging.info("All zip files extracted into processing directory.")
 
@@ -567,6 +554,41 @@ def generate_pdfs(digitization_dir: Path, dmaker_files):
     logging.info("(Placeholder) Would generate %s and %s", high_pdf, low_pdf)
 
 
+def remove_pattern(root: Path, pattern: str) -> None:
+    """
+    Recursively rename all files and directories under `root` by removing
+    occurrences of `pattern` from their names.
+
+    Parameters
+    ----------
+    root : Path
+        The directory whose contents will be renamed.
+
+    pattern : str
+        The substring to remove from filenames and directory names.
+
+    Notes
+    -----
+    - Walks bottom-up to safely rename directories after their content.
+    - Only renames when the name actually contains the pattern.
+    - Raises exceptions normally if rename fails.
+    """
+    if not root.is_dir():
+        raise ValueError(f"{root} is not a directory")
+
+    if not pattern:
+        raise ValueError("Pattern must be a non-empty string")
+
+    for path in sorted(
+        root.rglob("*"), key=lambda p: len(p.parts), reverse=True
+    ):
+        name = path.name
+        new_name = name.replace(pattern, "")
+        if new_name != name:
+            new_path = path.with_name(new_name)
+            path.rename(new_path)
+
+
 # -------------------------------------------------------------------
 # Main pipeline
 # -------------------------------------------------------------------
@@ -587,7 +609,7 @@ def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
             continue
         partner = d.name.split("_")[0]
         dmaker_path = Path(
-            f"/content/prod/rstar/content/{partner}/aco/wip/se/{d.name}/data"
+            f"/content/prod/rstar/content/{partner}/aco/wip/se/{d.name}/aux"
         )
         dmaker_imgs, hocr_files = ryo.rename_files(dmaker_path, d)
         util.generate_pdfs(dmaker_imgs, hocr_files, output_dir / d.name)
