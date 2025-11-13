@@ -34,14 +34,16 @@ def sglob(pattern):
     return sorted(glob(pattern))
 
 
-def run_command(command, stderr=subprocess.STDOUT, **kwargs):
+def run_command(
+    command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs
+):
     """Run a shell command and return its output."""
     logging.debug("Running command: %s", shlex_join(command))
 
     try:
         result = subprocess.run(
             command,
-            stdout=subprocess.PIPE,
+            stdout=stdout,
             stderr=stderr,
             check=True,
             universal_newlines=True,
@@ -51,15 +53,15 @@ def run_command(command, stderr=subprocess.STDOUT, **kwargs):
         output = "\n".join(out.strip() for out in (e.stdout, e.stderr) if out)
         logging.error("%s - %s", e, output)
         sys.exit(1)
-    return result.stdout.strip()
+    return (result.stdout or "").strip()
 
 
 def extract_images(pdf_file, dirpath, book_id):
     root_path = os.path.join(dirpath, book_id)
     run_command(["pdfimages", "-all", pdf_file, root_path])
     img_files = []
-    for i, img_file in enumerate(sglob(f"{root_path}*.jpg")):
-        new_img_file = os.path.join(dirpath, f"{book_id}_{i+1:06}.jpg")
+    for i, img_file in enumerate(sglob(f"{root_path}*.jpg"), start=1):
+        new_img_file = os.path.join(dirpath, f"{book_id}_{i:06}.jpg")
         os.rename(img_file, new_img_file)
         img_files.append(new_img_file)
         with PIL.Image.open(new_img_file) as img:
@@ -156,6 +158,7 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
     output = run_command([
         "hocr-pdf",
         "--reverse",
+        "auto",
         "--savefile",
         output_file,
         workdir,
@@ -321,14 +324,19 @@ def generate_pdf(
         else:
             extra_args = []
 
-        output = run_command([
-            "hocr-pdf",
-            "--reverse",
-            "--savefile",
-            tmp_file_orig,
-            *extra_args,
-            tmpdir,
-        ])
+        output = run_command(
+            [
+                "hocr-pdf",
+                "--reverse",
+                "auto",
+                "--savefile",
+                tmp_file_orig,
+                *extra_args,
+                tmpdir,
+            ],
+            stdout=None,
+            stderr=None,
+        )
         logging.debug("hocr-pdf output: %s", output)
 
         host = socket.gethostname()
@@ -426,6 +434,7 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
             output = run_command([
                 "hocr-pdf",
                 "--reverse",
+                "auto",
                 "--savefile",
                 page_pdf,
                 page_dir,
