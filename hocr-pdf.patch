@@ -1,5 +1,5 @@
 --- /home/rasan/hocr-pdf	2025-10-30 22:01:23.725763892 -0400
-+++ /home/rasan/Downloads/hocr-tools-1.3.0/hocr-pdf	2025-11-12 14:56:46.015490280 -0500
++++ /home/rasan/Downloads/hocr-tools-1.3.0/hocr-pdf	2025-11-13 00:20:22.848011280 -0500
 @@ -19,11 +19,14 @@
  
  import argparse
@@ -15,7 +15,7 @@
  import zlib
  
  from bidi.algorithm import get_display
-@@ -48,48 +51,56 @@
+@@ -48,48 +51,58 @@
          sys.stdout.write(data)
  
  
@@ -28,7 +28,6 @@
                "\nScript cannot proceed without them and will terminate now.\n")
          sys.exit(0)
 -    load_invisible_font()
-+    # load_invisible_font()
 +    load_cour_font()
      pdf = Canvas(savefile if savefile else StdoutWrapper(), pageCompression=1)
      pdf.setCreator('hocr-tools')
@@ -67,11 +66,14 @@
 +
 +    scale_to_pts = calc_scale_pts(hocr, dpi, img_width)
 +
-+    # Reverse Arabic words
 +    lang = get_language(hocr)
 +    logging.debug("language %s: %s", hocrfile, lang)
-+    if reverse is None and lang:
-+        reverse = lang in ("ar", "ara", "arabic")
++
++    if reverse == "lang":
++        if lang:
++            reverse = "yes" if is_rtl_lang(lang) else "no"
++        else:
++            raise ValueError(f"Missing or empty language in file {hocrfile}")
 +
 +    for line in hocr.xpath('//*[@class="ocr_line" or @class="ocrx_line"]'):
          linebox = p1.search(line.attrib['title']).group(1).split()
@@ -86,15 +88,13 @@
          xpath_elements = './/*[@class="ocrx_word"]'
          if (not (line.xpath('boolean(' + xpath_elements + ')'))):
              # if there are no words elements present,
-@@ -99,20 +110,27 @@
+@@ -99,20 +112,25 @@
              rawtext = word.text_content().strip()
              if rawtext == '':
                  continue
 -            font_width = pdf.stringWidth(rawtext, 'invisible', 8)
-+            # if reverse:
-+            #    rawtext = rawtext[::-1]
-+            # rawtext = get_display(rawtext)
-+            rawtext = fix_word(rawtext)
++
++            rawtext = reverse_handler[reverse](rawtext)
 +
 +            box = p1.search(word.attrib['title']).group(1).split()
 +            box = [max(float(i), 0.0) for i in box]
@@ -121,7 +121,7 @@
              text.textLine(rawtext)
              pdf.drawText(text)
  
-@@ -153,6 +171,142 @@
+@@ -153,6 +171,185 @@
      pdfmetrics.registerFont(TTFont('invisible', ttf))
  
  
@@ -156,6 +156,7 @@
 +    pdfmetrics.registerFont(TTFont("CourierNew", ttf_file))
 +
 +
++@trace
 +def get_page_bbox(tree):
 +    """Extract the page bounding box, width, and height."""
 +    page_divs = tree.xpath('//div[@class="ocr_page"]')
@@ -208,11 +209,9 @@
 +        float: The scale factor used to convert HOCR coordinates to PDF points.
 +    """
 +    bbox = get_page_bbox(hocr)
-+    logging.debug("page bounding box: %s", bbox)
 +    scale = img_width / bbox["width"] if bbox else 1.0
 +    logging.debug("scale hocr: %s", scale)
 +    scale *= 72 / dpi
-+    logging.debug("scale pdf pts: %s", scale)
 +    return scale
 +
 +
@@ -243,12 +242,11 @@
 +    preserving Latin letters, ASCII digits, and punctuation as-is.
 +    Use this on each ocrx_word's text BEFORE sending to PDF.
 +    """
-+    logging.debug("input text: %s", text)
 +    parts = []
 +    for ar, lat, num, other in _RUN_RE.findall(text or ""):
 +        if ar and all(_is_arabic_char(c) for c in ar):
 +            # Reverse ONLY Arabic runs: visual → logical
-+            logging.debug("Arabic found: %s", ar[::-1])
++            logging.debug("Arabic found: %s", ar)
 +            parts.append(ar[::-1])
 +        elif lat:
 +            parts.append(lat)   # leave Latin (French/Spanish/English) as-is
@@ -257,24 +255,73 @@
 +        else:
 +            parts.append(other) # punctuation/symbols
 +    fixed_text = "".join(parts)
-+    logging.debug("fixed text: %s", fixed_text)
 +    return fixed_text
++
++
++# ---------------------------------------------------------------------
++# RTL language codes (ISO 639-1, 639-2, 639-3)
++# ---------------------------------------------------------------------
++RTL_LANGS = {
++    # Arabic family
++    "ar", "ara",
++    "fa", "fas", "per",    # Persian (Farsi)
++    "ur", "urd",           # Urdu
++    "ps", "pus",           # Pashto
++    "sd", "snd",           # Sindhi
++    "ug", "uig",           # Uyghur
++
++    # Hebrew / Yiddish
++    "he", "heb",
++    "iw",                  # legacy Hebrew
++    "yi", "yid",           # Yiddish
++
++    # Kurdish (mixed, but Sorani is RTL)
++    "ku", "kur",
++    "ckb",
++}
++
++
++@trace
++def is_rtl_lang(lang):
++    """
++    Return True if the given language code is a right-to-left language.
++
++    Raises ValueError if `lang` is empty, None, or contains only whitespace.
++    Supports ISO 639-1 (2-letter) and ISO 639-2/3 (3-letter) codes.
++    Works in Python 3.6+.
++    """
++    if not lang or not lang.strip():
++        raise ValueError("Language code must be a non-empty string")
++
++    code = lang.strip().lower()
++    return code in RTL_LANGS
++
++
++reverse_handler = {
++    "auto": lambda s: fix_word(s),
++    "yes":  lambda s: s[::-1],
++    "no":   lambda s: s,
++}
 +
 +
  if __name__ == "__main__":
      parser = argparse.ArgumentParser(
          description="Create a searchable PDF from a pile of hOCR and JPEG")
-@@ -166,7 +320,26 @@
+@@ -166,7 +363,30 @@
          "--savefile",
          help="Save to this file instead of outputting to stdout"
      )
 +    parser.add_argument(
 +        "--reverse",
++        choices=["auto", "lang", "yes", "no"],
++        default="auto",
 +        help=(
-+            "Reverse words added to PDF if no language specfied in hOCR "
-+            "(useful for Arabic text)."
++            "Control when words are reversed before adding them to the PDF."
++            " 'auto' tries to detect RTL text automatically. 'lang' reverses"
++            " words only when the HOCR element's 'lang' attribute indicates an"
++            " RTL language (Arabic or Hebrew). 'yes' always reverses and 'no'"
++            " never reverses. (default: %(default)s)"
 +        ),
-+        action="store_true",
 +    )
 +    parser.add_argument(
 +        "-d", "--debug", action="store_true", help="Enable debugging"
