@@ -324,7 +324,7 @@ def rename_files(
     if check_perms and not is_writable_and_executable(yai_dir):
         raise FileRenameError(
             "You don't have write and execute permissions on YaiGlobal"
-            f" directory '{yai_dir}' perm: {format_permissions(qnl_dir)}"
+            f" directory '{yai_dir}' perm: {format_permissions(yai_dir)}"
         )
 
     cf = ColorFormatter(use_color=colorize)
