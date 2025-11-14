@@ -203,7 +203,7 @@ def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
 
     output = run_command([
         magick,
-        src_img + "[0]",
+        str(src_img) + "[0]",
         "-resample",
         str(dpi),
         "-strip",
