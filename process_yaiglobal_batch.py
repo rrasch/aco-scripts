@@ -235,11 +235,8 @@ def create_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
 
     logging.info("Creating checksum files for %s...", dirpath)
 
-    with (
-        checksum_file.open("w", encoding="utf-8") as cksum,
-        info_file.open("w", encoding="utf-8") as info,
-    ):
-
+    with checksum_file.open("w", encoding="utf-8") as cksum, \
+             info_file.open("w", encoding="utf-8") as info:
         for file in sorted(dirpath.glob("*")):
             if not file.is_file():
                 continue
