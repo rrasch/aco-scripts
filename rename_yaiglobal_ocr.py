@@ -185,6 +185,7 @@ def is_nyu_format(bookid: str, ext: str) -> Callable[[os.DirEntry], bool]:
                 rf"^{bookid}_((afr|zbk)\d{{2}}|n\d{{6}})_ocr\.{ext}",
                 clean_text(entry.name),
             )
+            is not None
             and entry.is_file()
         )
 
@@ -212,6 +213,7 @@ def is_yai_format(bookid: str, ext: str) -> Callable[[os.DirEntry], bool]:
         """
         return (
             re.search(rf"^{bookid}_\d{{6}}\.{ext}$", clean_text(entry.name))
+            is not None
             and entry.is_file()
         )
 
@@ -225,7 +227,7 @@ def clean_text(text: str) -> str:
 
 def path_grep(
     dirpath: str, cond_func: Callable[[os.DirEntry], bool]
-) -> List[os.DirEntry]:
+) -> List[str]:
     """Gets list of directory entries that match a condition
 
     Args:
