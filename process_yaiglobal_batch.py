@@ -323,8 +323,8 @@ def verify_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
                     )
 
     if mismatches:
-        for m in mismatches:
-            logging.error(m)
+        for msg in mismatches:
+            logging.error(msg)
         raise ValidationError(
             f"Integrity check failed for {dirpath}:\n" + "\n".join(mismatches)
         )
