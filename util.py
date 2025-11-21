@@ -207,7 +207,7 @@ def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
         "-resample",
         str(dpi),
         "-strip",
-        dst_img,
+        str(dst_img),
     ])
     logging.debug("ImageMagick output: %s", output)
 
@@ -224,6 +224,7 @@ def generate_pdf(
     dpi=200,
     max_workers=None,
     use_processes=False,
+    overwrite=False,
 ):
     """
     Generate a searchable PDF from image and hOCR files using hocr-pdf.
@@ -243,11 +244,13 @@ def generate_pdf(
         output_file (str): Path where the final searchable PDF will be written.
         dpi (int, optional): Target DPI for image resampling. Defaults to 200.
         max_workers (int, optional): Maximum number of threads or
-            processes to use. Defaults to CPU count × 2 (capped at 32).
+            processes to use. Defaults to CPU count - 1.
         use_processes (bool, optional): If True, uses
             ProcessPoolExecutor for CPU-heavy Python work; otherwise
             ThreadPoolExecutor (default, ideal for subprocess-heavy
             tasks).
+        overwrite (bool, optional): Allow output_file to be overwritten if True.
+            Defaukts to False.
 
     Raises:
         ValueError: If the number of image and hOCR files differ, or if no
@@ -259,7 +262,7 @@ def generate_pdf(
         None
     """
     output_path = Path(output_file).resolve()
-    if output_path.is_file():
+    if not overwrite and output_path.is_file():
         logging.warning("File %s already exists", output_path)
         return
 
@@ -549,7 +552,13 @@ def generate_pdf_parallel(
         merge_pdfs(page_pdf_files, output_file, tmpdir=tmpdir)
 
 
-def generate_pdfs(img_files, hocr_files, output_base):
+def generate_pdfs(
+    img_files,
+    hocr_files,
+    output_base,
+    max_workers=None,
+    overwrite=False,
+):
     """
     Generate multiple PDF variants from image and hOCR files.
 
@@ -566,6 +575,10 @@ def generate_pdfs(img_files, hocr_files, output_base):
             corresponding to each image file.
         output_base (str or pathlib.Path): Base path (without extension) for
             the output PDF files.
+        max_workers (int, optional): Maximum number of threads to use.
+            Defaults to CPU count - 1.
+        overwrite (bool, optional): Allow output files to be overwritten
+            if True. Defaults to False.
 
     Returns:
         list[pathlib.Path]: Paths to the generated PDF files.
@@ -577,7 +590,14 @@ def generate_pdfs(img_files, hocr_files, output_base):
     for ext, dpi in PDF_DPI.items():
         outfile = Path(f"{output_base}_{ext}.pdf")
         logging.debug("Generating PDF: %s (DPI=%s)", outfile, dpi)
-        generate_pdf(img_files, hocr_files, outfile, dpi=dpi)
+        generate_pdf(
+            img_files,
+            hocr_files,
+            outfile,
+            dpi=dpi,
+            max_workers=max_workers,
+            overwrite=overwrite,
+        )
         pdfs.append(outfile)
     return pdfs
 
