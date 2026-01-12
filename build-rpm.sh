@@ -17,6 +17,6 @@ echo "  Repo:   $GIT_URL"
 echo "  Tag:    $TAG"
 echo "  Commit: $COMMIT"
 
-rpmbuild -ba aco-scripts.spec \
+rpmbuild -bb aco-scripts.spec \
   --define "git_tag $TAG" \
   --define "git_commit $COMMIT"
