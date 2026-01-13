@@ -1,5 +1,5 @@
 --- /home/rasan/hocr-pdf	2025-10-30 22:01:23.725763892 -0400
-+++ /home/rasan/Downloads/hocr-tools-1.3.0/hocr-pdf	2026-01-08 22:13:48.881507527 -0500
++++ /home/rasan/Downloads/hocr-tools-1.3.0/hocr-pdf	2026-01-12 21:06:56.867100725 -0500
 @@ -1,4 +1,4 @@
 -#!/usr/bin/env python
 +#!/usr/bin/python3
@@ -103,13 +103,13 @@
 +        # First pass: get raw words for direction detection
 +        words_in_line = []
 +        for word in line.xpath(xpath_elements):
-+            raw = word.text_content().strip()
-+            if raw:
-+                fixed = fix_word(raw)
++            rawtext = word.text_content().strip()
++            if rawtext:
++                fixed = fix_word(rawtext)
 +                words_in_line.append(fixed)
 +
 +        # Determine if this line is RTL-dominant
-+        line_rtl = frac_arabic(" ".join(words_in_line)) > 0.35
++        line_rtl = frac_arabic("".join(words_in_line)) > 0.35
 +
 +        # Second pass: render each word
          for word in line.xpath(xpath_elements):
@@ -145,7 +145,7 @@
              text.textLine(rawtext)
              pdf.drawText(text)
  
-@@ -153,6 +183,208 @@
+@@ -153,6 +183,209 @@
      pdfmetrics.registerFont(TTFont('invisible', ttf))
  
  
@@ -159,7 +159,7 @@
 +
 +        logging.debug("Calling %s(%s)", func.__name__, signature)
 +        result = func(*args, **kwargs)
-+        logging.debug("%s returned %r", func.__name__, result)
++        logging.debug("%s(%s) returned %r", func.__name__, signature, result)
 +        return result
 +    return wrapper
 +
@@ -309,6 +309,7 @@
 +    return fixed_text
 +
 +
++@trace
 +def frac_arabic(s):
 +    """Percentage of Arabic letters in a string."""
 +    if not s: return 0.0
@@ -354,7 +355,7 @@
  if __name__ == "__main__":
      parser = argparse.ArgumentParser(
          description="Create a searchable PDF from a pile of hOCR and JPEG")
-@@ -166,7 +398,30 @@
+@@ -166,7 +399,30 @@
          "--savefile",
          help="Save to this file instead of outputting to stdout"
      )
