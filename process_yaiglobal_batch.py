@@ -63,6 +63,7 @@ Usage
 """
 
 from pathlib import Path
+from typing import Optional
 import argparse
 import configparser
 import csv
@@ -589,13 +590,20 @@ def remove_pattern(root: Path, pattern: str) -> None:
 # -------------------------------------------------------------------
 # Main pipeline
 # -------------------------------------------------------------------
-def process_batch(root: Path, s3_bucket: str, output_dir: Path, batch_id: str):
+def process_batch(
+    root: Path,
+    s3_bucket: str,
+    output_dir: Path,
+    batch_id: str,
+    cache_dir: Optional[Path] = None,
+):
     """Main workflow for one YaiGlobal batch."""
     logging.info("Starting YaiGlobal batch processing: %s", batch_id)
 
     outbox, processing = create_batch_dirs(root, batch_id)
 
-    cache_dir = Path.home() / ".cache" / "yaiglobal"
+    if cache_dir is None:
+        cache_dir = root / ".cache" / "yaiglobal"
     fetch_batch_files(s3_bucket, batch_id, outbox, cache_dir)
 
     unzip_to_processing(outbox, processing)
