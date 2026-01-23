@@ -66,7 +66,7 @@ Usage
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 import argparse
 import configparser
 import csv
@@ -501,6 +501,7 @@ def unzip_to_processing(outbox: Path, processing: Path):
         with zipfile.ZipFile(zipfile_path, "r") as z:
             z.extractall(target_dir)
         remove_pattern(target_dir, "_lo")
+        remove_pdfs(target_dir)
         logging.debug("Unzipped %s → %s", zipfile_path, target_dir)
     logging.info("All zip files extracted into processing directory.")
 
@@ -593,6 +594,44 @@ def remove_pattern(root: Path, pattern: str) -> None:
         if new_name != name:
             new_path = path.with_name(new_name)
             path.rename(new_path)
+
+
+def remove_pdfs(dirpath: Path) -> List[Path]:
+    """
+    Remove all PDF files under a directory, recursively.
+
+    Args:
+        dirpath: Root directory to search for PDF files.
+
+    Returns:
+        List of Path objects for the files that were removed.
+
+    Raises:
+        NotADirectoryError: If dirpath is not a directory.
+        OSError: If a PDF cannot be removed.
+    """
+    if not dirpath.is_dir():
+        raise NotADirectoryError(f"Not a directory: {dirpath}")
+
+    pdfs = sorted(
+        p
+        for p in dirpath.rglob("*")
+        if p.is_file() and p.suffix.lower() == ".pdf"
+    )
+
+    removed: List[Path] = []
+
+    for pdf in pdfs:
+        try:
+            pdf.unlink()
+            removed.append(pdf)
+            logging.debug("Removed PDF: %s", pdf)
+        except OSError as e:
+            logging.error("Failed to remove %s: %s", pdf, e)
+            raise
+
+    logging.info("Removed %d PDF files under %s", len(removed), dirpath)
+    return removed
 
 
 # -------------------------------------------------------------------
