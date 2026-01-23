@@ -48,11 +48,14 @@ Workflow Steps
 --------------------------------------------------------------------
 Configuration
 --------------------------------------------------------------------
-A config file (default: ./yaiglobal_config.ini) defines:
+A config file (default: ~/.yaiglobal_config.ini) defines:
 
     [paths]
     root = /path/to/dropbox
     s3_bucket = s3://<some-url>
+
+    # Optional (defaults to processing directory)
+    output_dir = /path/to/output/pdfs
 
 --------------------------------------------------------------------
 Usage
@@ -97,10 +100,15 @@ def load_config(config_path: Path):
     try:
         root = Path(config["paths"]["root"])
         s3_bucket = config["paths"]["s3_bucket"]
-        output_dir = Path(config["paths"]["output_dir"])
     except KeyError as e:
         logging.error("Missing required config key: %s", e)
         sys.exit(1)
+
+    output_dir = config["paths"].get("output_dir")
+    if output_dir:
+        output_dir = Path(output_dir)
+    else:
+        output_dir = None
 
     return root, s3_bucket, output_dir
 
@@ -593,8 +601,8 @@ def remove_pattern(root: Path, pattern: str) -> None:
 def process_batch(
     root: Path,
     s3_bucket: str,
-    output_dir: Path,
     batch_id: str,
+    output_dir: Optional[Path] = None,
     cache_dir: Optional[Path] = None,
 ):
     """Main workflow for one YaiGlobal batch."""
@@ -617,7 +625,8 @@ def process_batch(
             f"/content/prod/rstar/content/{partner}/aco/wip/se/{d.name}/aux"
         )
         dmaker_imgs, hocr_files = ryo.rename_files(dmaker_path, d)
-        util.generate_pdfs(dmaker_imgs, hocr_files, output_dir / d.name)
+        output_base = (output_dir or d) / d.name
+        util.generate_pdfs(dmaker_imgs, hocr_files, output_base)
 
     logging.info("✅ Batch %s processing complete.", batch_id)
 
@@ -636,8 +645,8 @@ def main():
         "-c",
         "--config",
         type=Path,
-        default=Path("./yaiglobal_config.ini"),
-        help="Path to configuration file (default: ./yaiglobal_config.ini)",
+        default=Path.home() / ".yaiglobal_config.ini",
+        help="Path to configuration file (default: %(default)s)",
     )
     parser.add_argument(
         "-v",
@@ -652,7 +661,7 @@ def main():
     verify_tools()
 
     root, s3_bucket, output_dir = load_config(args.config)
-    process_batch(root, s3_bucket, output_dir, args.batch_id)
+    process_batch(root, s3_bucket, args.batch_id, output_dir=output_dir)
 
 
 if __name__ == "__main__":
