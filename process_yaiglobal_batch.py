@@ -492,18 +492,66 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
     return sorted(csv_bookids)
 
 
-def unzip_to_processing(outbox: Path, processing: Path):
-    """Unzip each digitization ID zip into processing directory."""
-    for zipfile_path in sorted(outbox.glob("*.zip")):
-        digitization_id = zipfile_path.stem
+def unzip_external(zip_path: Path, target_dir: Path):
+    """
+    Extract a ZIP archive using the external unzip command.
+
+    Raises:
+        FileNotFoundError: If unzip is not installed.
+        subprocess.CalledProcessError: If unzip fails.
+    """
+    subprocess.run(
+        ["unzip", "-o", str(zip_path), "-d", str(target_dir)],
+        check=True,
+    )
+
+
+def unzip_python(zip_path: Path, target_dir: Path):
+    """
+    Extract a ZIP archive using Python's zipfile module.
+    """
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(target_dir)
+
+
+def unzip_to_processing(
+    outbox: Path,
+    processing: Path,
+    use_external_unzip: bool = True,
+):
+    """
+    Unzip each digitization ID zip into the processing directory.
+
+    Args:
+        outbox: Directory containing digitization ZIP files.
+        processing: Target processing directory.
+        use_external_unzip: If True, use the external unzip command.
+            If False, use Python's zipfile module.
+
+    Raises:
+        FileNotFoundError: If unzip is requested but not installed.
+        subprocess.CalledProcessError: If external unzip fails.
+        zipfile.BadZipFile: If a ZIP is invalid.
+    """
+    for zip_path in sorted(outbox.glob("*.zip")):
+        digitization_id = zip_path.stem
         target_dir = processing / digitization_id
         target_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(zipfile_path, "r") as z:
-            z.extractall(target_dir)
+
+        if use_external_unzip:
+            unzip_external(zip_path, target_dir)
+        else:
+            unzip_python(zip_path, target_dir)
+
         remove_pattern(target_dir, "_lo")
         remove_pdfs(target_dir)
-        logging.debug("Unzipped %s → %s", zipfile_path, target_dir)
-    logging.info("All zip files extracted into processing directory.")
+
+        logging.debug("Unzipped %s → %s", zip_path.name, target_dir)
+
+    logging.info(
+        "All zip files extracted into processing directory: %s",
+        processing,
+    )
 
 
 def validate_file_counts(processing: Path):
