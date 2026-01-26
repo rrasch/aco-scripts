@@ -682,6 +682,31 @@ def remove_pdfs(dirpath: Path) -> List[Path]:
     return removed
 
 
+def normalize_dmaker_imgs(coll_dir: Path, book_id: str):
+    """
+    Run create-deriv-images.pl to normalize dmaker images for a book.
+
+    Args:
+        coll_dir: Collection directory path.
+        book_id: Book identifier.
+
+    Raises:
+        FileNotFoundError: If the create-deriv-images.pl script is not found.
+        subprocess.CalledProcessError: If the command fails.
+    """
+    cmd = [
+        "/usr/local/dlib/book-publisher/bin/create-deriv-images.pl",
+        "-q",  # quiet execution
+        "-f",  # force overwrite of output files
+        "-m",  # only create new normalized dmaker imags
+        "-r",
+        str(coll_dir),
+        book_id,
+    ]
+
+    subprocess.run(cmd, check=True)
+
+
 # -------------------------------------------------------------------
 # Main pipeline
 # -------------------------------------------------------------------
@@ -689,8 +714,10 @@ def process_batch(
     root: Path,
     s3_bucket: str,
     batch_id: str,
+    *,
     output_dir: Optional[Path] = None,
     cache_dir: Optional[Path] = None,
+    gen_pdfs=False,
 ):
     """Main workflow for one YaiGlobal batch."""
     logging.info("Starting YaiGlobal batch processing: %s", batch_id)
@@ -707,13 +734,21 @@ def process_batch(
     for d in sorted(processing.iterdir()):
         if not d.is_dir():
             continue
+
         partner = d.name.split("_")[0]
-        dmaker_path = Path(
-            f"/content/prod/rstar/content/{partner}/aco/wip/se/{d.name}/aux"
-        )
-        dmaker_imgs, hocr_files = ryo.rename_files(dmaker_path, d)
-        output_base = (output_dir or d) / d.name
-        util.generate_pdfs(dmaker_imgs, hocr_files, output_base)
+
+        coll_dir = Path(f"/content/prod/rstar/content/{partner}/aco")
+        book_dir = coll_dir / "wip" / "se" / d.name
+        data_dir = book_dir / "data"
+        aux_dir = book_dir / "data"
+
+        dmaker_imgs, hocr_files = ryo.rename_files(data_dir, d)
+
+        if gen_pdfs:
+            normalize_dmaker_imgs(coll_dir, d.name)
+            dmaker_imgs = sorted(aux_dir.glob("*_d.tif"))
+            output_base = (output_dir or d) / d.name
+            util.generate_pdfs(dmaker_imgs, hocr_files, output_base)
 
     logging.info("✅ Batch %s processing complete.", batch_id)
 
@@ -736,6 +771,12 @@ def main():
         help="Path to configuration file (default: %(default)s)",
     )
     parser.add_argument(
+        "-p",
+        "--gen-pdfs",
+        action="store_true",
+        help="Generate searchable PDFs",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -748,7 +789,13 @@ def main():
     verify_tools()
 
     root, s3_bucket, output_dir = load_config(args.config)
-    process_batch(root, s3_bucket, args.batch_id, output_dir=output_dir)
+    process_batch(
+        root,
+        s3_bucket,
+        args.batch_id,
+        output_dir=output_dir,
+        gen_pdfs=args.gen_pdfs,
+    )
 
 
 if __name__ == "__main__":
