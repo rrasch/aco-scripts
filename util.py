@@ -239,9 +239,12 @@ def generate_pdf(
     PDF is linearized and stripped of all metadata.
 
     Args:
-        img_files (list[str]): Paths to image files (one per page).
-        hocr_files (list[str]): Paths to hOCR files corresponding to each image.
-        output_file (str): Path where the final searchable PDF will be written.
+        img_files (list[str] or list[pathlib.Path]): Paths to image files
+            (one per page).
+        hocr_files (list[str] or list[pathlib.Path]): Paths to hOCR files
+            corresponding to each image.
+        output_file (str or pathlib.Path): Path where the final searchable
+            PDF will be written.
         dpi (int, optional): Target DPI for image resampling. Defaults to 200.
         max_workers (int, optional): Maximum number of threads or
             processes to use. Defaults to CPU count - 1.
