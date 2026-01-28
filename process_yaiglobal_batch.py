@@ -132,7 +132,12 @@ def setup_logging(verbose: bool):
 def run(args):
     """Run external command safely (no shell=True)."""
     logging.debug("Running: %s", " ".join(args))
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = subprocess.run(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
     if result.returncode != 0:
         logging.error("Command failed: %s", " ".join(args))
         logging.error(result.stderr.strip())
