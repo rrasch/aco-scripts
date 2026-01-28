@@ -1,30 +1,21 @@
+%{!?git_tag:%{error:git_tag macro must be defined}}
+%{!?git_commit:%{error:git_commit macro must be defined}}
+
 %global name aco-scripts
+%global version %(echo %{git_tag} | sed 's/^v//')
+%global release 1.dlts.git%{git_commit}%{?dist}
+
 %global git_url https://github.com/rrasch/%{name}
 %global install_dir /usr/local/dlib/%{name}
 
-# Defaults (override from command line)
-%if !%{defined git_tag}
-%global git_tag v0.1
-%endif
-%if !%{defined git_commit}
-%global git_commit unknown
-%endif
-
-# Strip the leading "v" for RPM Version
-%global rpm_version %(echo %{git_tag} | sed 's/^v//')
-
-%if !%{defined python3}
-%global python3 %{_bindir}/python3
-%endif
-
 Name:           %{name}
-Version:        %{rpm_version}
-Release:        1.dlts.git%{git_commit}%{?dist}
+Version:        %{version}
+Release:        %{release}
 Summary:        Utility scripts for Arabic Collections Online (ACO)
 License:        MIT
 URL:            %{git_url}
 BuildArch:      noarch
-#BuildRequires:  git
+BuildRequires:  git
 Requires:       python3
 
 %description
