@@ -506,7 +506,7 @@ def unzip_external(zip_path: Path, target_dir: Path):
         subprocess.CalledProcessError: If unzip fails.
     """
     subprocess.run(
-        ["unzip", "-o", str(zip_path), "-d", str(target_dir)],
+        ["unzip", "-q", "-o", str(zip_path), "-d", str(target_dir)],
         check=True,
     )
 
