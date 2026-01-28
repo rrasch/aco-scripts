@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+import sys
 import yaiglobal.helpers as yh
 from pathlib import Path
 
@@ -70,7 +71,13 @@ def main():
 
     yh.setup_logging(args.verbose)
 
-    root, _, _ = yh.load_config(args.config)
+    if args.root:
+        root = args.root
+    else:
+        root, _, _ = yh.load_config(args.config)
+
+    if not root.is_dir():
+        sys.exit(f"Root directory not found: '{root}'")
 
     processing = root / "processing" / f"batch{args.batch_id}"
     logging.debug("Processing dir: %s", processing)

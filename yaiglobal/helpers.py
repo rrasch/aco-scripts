@@ -37,6 +37,13 @@ def setup_args(description: str, parse: bool = True):
         help="Path to configuration file (default: %(default)s)",
     )
     parser.add_argument(
+        "-r",
+        "--root",
+        "--dropbox-root",
+        type=Path,
+        help="Root path of yaiglobal dropbox",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
