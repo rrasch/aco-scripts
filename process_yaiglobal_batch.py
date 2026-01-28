@@ -740,7 +740,7 @@ def process_batch(
         coll_dir = Path(f"/content/prod/rstar/content/{partner}/aco")
         book_dir = coll_dir / "wip" / "se" / d.name
         data_dir = book_dir / "data"
-        aux_dir = book_dir / "data"
+        aux_dir = book_dir / "aux"
 
         dmaker_imgs, hocr_files = ryo.rename_files(data_dir, d)
 
