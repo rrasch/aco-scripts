@@ -780,6 +780,14 @@ def validate_dirpath(dirpath):
     return os.path.realpath(dirpath)
 
 
+def validate_dirpath_path(dirpath):
+    """Validates a dirpath and returns it as a Path object."""
+    path = Path(dirpath)
+    if not path.is_dir():
+        raise argparse.ArgumentTypeError(f"Directory not found: '{dirpath}'")
+    return path.resolve()
+
+
 def validate_filepath(filepath):
     if not os.path.exists(filepath):
         raise argparse.ArgumentTypeError(f"File '{filepath}' does not exist.")
