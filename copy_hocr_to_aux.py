@@ -38,12 +38,12 @@ def copy_hocr_files(
             logging.warn("[SKIP] %s already exists", target)
             continue
 
+        copied_count += 1
         if dry_run:
             logging.info("[DRY-RUN] Would copy %s -> %s", hocr_file, target)
         else:
             logging.debug("Copying %s -> %s", hocr_file, target)
             shutil.copy2(hocr_file, target)
-            copied_count += 1
 
     action = "Would copy" if dry_run else "Copied"
     logging.info(
