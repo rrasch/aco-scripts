@@ -46,12 +46,12 @@ def main():
         action="store_true",
         help=(
             "Show add-mb-job commands that will be run without executing them."
-            " (Implies debug mode)"
+            " (Implies verbose mode)"
         ),
     )
     args = parser.parse_args()
 
-    yh.setup_logging(args.verbose)
+    yh.setup_logging(args.verbose or args.dry_run)
 
     sysconfig = tqcommon.get_sysconfig()
     if "mqhost" not in sysconfig:
