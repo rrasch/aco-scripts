@@ -118,3 +118,22 @@ def get_book_paths(processing_subdir: Path):
         data=data_dir,
         aux=aux_dir,
     )
+
+
+def get_root(args):
+    if args.root:
+        root = args.root
+    else:
+        root, _, _ = load_config(args.config)
+
+    if not root.is_dir():
+        sys.exit(f"Root directory not found: '{root}'")
+
+    return root
+
+
+def get_processing_dirs(args):
+    root = get_root(args)
+    processing = root / "processing" / f"batch{args.batch_id}"
+    logging.debug("Processing dir: %s", processing)
+    return sorted(processing.iterdir())
