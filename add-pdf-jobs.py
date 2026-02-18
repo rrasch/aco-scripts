@@ -3,9 +3,12 @@
 import argparse
 import logging
 import subprocess
-import os
+import sys
 
 from book_paths import get_book_dirs, BookDirError
+
+sys.path.append("/usr/local/dlib/task-queue")
+import tqcommon
 
 
 def main():
@@ -20,13 +23,9 @@ def main():
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    # MQHOST *must* be set
-    if "MQHOST" not in os.environ:
-        logging.error("Environment variable MQHOST is required but not set.")
-        return
-
-    mqhost = os.environ["MQHOST"]
-    logging.info(f"Using MQ host: {mqhost}")
+    sysconfig = tqcommon.get_sysconfig()
+    if "mqhost" not in sysconfig:
+        sys.exit("RabbitMQ host not set in sysconfig.")
 
     try:
         meta = get_book_dirs(args.book_ids)
@@ -40,7 +39,7 @@ def main():
         cmd = [
             "add-mb-job",
             "-m",
-            mqhost,
+            sysconfig["mqhost"],
             "-s",
             "book_publisher:gen_all",
             "-r",
