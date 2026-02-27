@@ -5,7 +5,7 @@ from pathlib import Path
 class BookDirError(Exception):
     """Raised when required directories for a book ID do not exist."""
 
-    pass
+    __module__ = "builtins"
 
 
 def parse_book_id(book_id):
