@@ -83,13 +83,15 @@ def main():
             book_id,
         ]
 
-        logging.info(f"Command: {' '.join(cmd)}")
+        logging.info("Command: %s", " ".join(cmd))
 
-        if not args.dry_run:
-            try:
-                subprocess.run(cmd, check=True)
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Command failed for {book_id}: {e}")
+        if args.dry_run:
+            continue
+
+        try:
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Command failed for {book_id}: {e}")
 
 
 if __name__ == "__main__":
