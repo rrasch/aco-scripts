@@ -36,6 +36,18 @@ def main():
         dest="op",
         help="Add task queue jobs to merge images and hocr into pdfs",
     )
+    group.add_argument(
+        "--upload-pdf",
+        "--make-upload-pdf",
+        "--make-yaiglobal-upload-pdf",
+        action="store_const",
+        const="make_yaiglobal_upload_pdf",
+        dest="op",
+        help=(
+            "Add task queue jobs to make low resolution pdfs that will be"
+            " uploaded to yaiglobal"
+        ),
+    )
 
     parser.add_argument(
         "--dry-run", action="store_true", help="Show commands without executing"
