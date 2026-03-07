@@ -12,10 +12,10 @@ Repository: https://github.com/rrasch/aco-scripts
 
 These scripts assist with the following tasks:
 
-* Renaming OCR files delivered by **YAI Global**
-* Preparing HOCR files for PDF generation
+* Generating PDfs used to upload to vendor
+* Renaming OCR files delivered by vendor
+* Preparing HOCR files for searchable PDF generation
 * Adding task-queue jobs for book processing
-* Generating book derivatives prior to uploading content
 
 Most scripts support a `--dry-run` option to preview commands before executing them.
 
@@ -37,7 +37,12 @@ Typical directory structure:
     wip/
         se/
             <book_id>/
+
 /content/prod/rstar/xfer/dropbox/yaiglobal/
+    outbox/
+        <book_id>/
+    processing/
+        <book_id>/
 ```
 
 ---
@@ -53,14 +58,45 @@ cd aco-scripts
 
 ---
 
-# Workflow
+# Pre-Processing Workflow
 
-A typical workflow for processing a book looks like this:
+A typical workflow for pre-processing a book looks like this:
+
+1. Generate low resolution PDFs used an input to extract OCR
+
+Each step is described below.
+
+---
+
+# 1. Generate PDFs use to extact OCR
+
+To generate PDFs before uploading to YAI Global, add a `book_publisher:make_yaiglobal_upload_pdf` job.
+
+Use the `-e` (extra arguments) option with `-f` to force removal of existing files in the `aux` directory.
+
+Example:
+
+```bash
+add-mb-job -m <rabbitmq.host> -s book_publisher:make_yaiglobal_upload_pdf \
+    -r /content/prod/rstar/content/aub/aco \
+    -e "-f" aub_aco001518
+```
+
+or use the wrapper script:
+
+```bash
+./add_book_jobs.py --make-yaiglobal-upload-pdf aub_aco001518
+```
+
+---
+
+# Post-Processing Workflow
+
+A typical workflow for post-processing a book looks like this:
 
 1. Rename OCR files from YAI Global
 2. Copy `.hocr` files into the book's `aux` directory
 3. Add a task queue job to generate PDFs
-4. Optionally generate all derivatives for the book
 
 Each step is described below.
 
@@ -116,22 +152,6 @@ Example:
 
 ```bash
 /usr/local/dlib/aco-scripts/add_book_jobs.py --hocr2pdf aub_aco001518
-```
-
----
-
-# 4. Generate All Book Derivatives
-
-To generate all book derivatives before uploading to YAI Global, add a `book_publisher:gen_all` job.
-
-Use the `-e` (extra arguments) option with `-f` to force removal of existing files in the `aux` directory.
-
-Example:
-
-```bash
-add-mb-job -m <rabbitmq.host> -s book_publisher:gen_all \
-    -r /content/prod/rstar/content/aub/aco \
-    -e "-f" aub_aco001518
 ```
 
 ---
