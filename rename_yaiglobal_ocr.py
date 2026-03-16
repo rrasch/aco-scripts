@@ -73,7 +73,7 @@ class ColorFormatter:
         """
         Initializes the ColorFormatter.
         :param use_color: Boolean that determines whether to format text
-            in color. This value is overwridden to False if stdout is not
+            in color. This value is overridden to False if stdout is not
             connected to a tty. (default is True)
         """
         self.use_color = use_color and sys.stdout.isatty()
@@ -152,7 +152,7 @@ def is_dmaker(entry: os.DirEntry) -> bool:
     """Checks if entry is derivative maker image
 
     Args:
-        enrtry (os.DirEntry): os.DirEntry object to check
+        entry (os.DirEntry): os.DirEntry object to check
 
     Returns:
         True if entry is a derivative maker, False otherwise
@@ -356,7 +356,7 @@ def main():
     parser.add_argument(
         "yai_dir",
         type=validate_dirpath,
-        help="YaiGlobal directory containig files to be renamed",
+        help="YaiGlobal directory containing files to be renamed",
     )
     parser.add_argument(
         "-n",
