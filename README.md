@@ -68,7 +68,7 @@ Each step is described below.
 
 ---
 
-# 1. Generate PDFs use to extact OCR
+# 1. Generate PDFs use to extract OCR
 
 To generate PDFs before uploading to YAI Global, add a `book_publisher:make_yaiglobal_upload_pdf` job.
 
