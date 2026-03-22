@@ -28,7 +28,9 @@ rm -rf %{name}*
 
 git clone %{git_url} %{name}-%{version}
 cd %{name}-%{version}
+%if "%{git_tag}" != "v0.0.0"
 git -c advice.detachedHead=false checkout %{git_tag}
+%endif
 
 %build
 :
