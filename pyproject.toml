@@ -1,0 +1,24 @@
+[tool.ruff]
+target-version = "py37"
+
+[tool.ruff.lint]
+ignore = ["UP021"]
+
+[tool.black]
+line-length = 80
+target-version = ['py36']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # The following are specific to Black, you probably don't want those.
+  | blib2to3
+  | tests/data
+  | profiling
+)/
+'''
+# We use preview style for formatting Black itself. If you
+# want stable formatting across releases, you should keep
+# this off.
+preview = true
+
+unstable = true

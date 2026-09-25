@@ -1,7 +1,3 @@
-from glob import glob
-from lxml import etree
-from pathlib import Path
-import PIL.Image
 import argparse
 import concurrent.futures
 import logging
@@ -14,7 +10,11 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from glob import glob
+from pathlib import Path
 
+import PIL.Image
+from lxml import etree
 
 try:
     from tqdm import tqdm
@@ -29,6 +29,8 @@ PDF_DPI = {
     "lo": 96,
 }
 
+logger = logging.getLogger(__name__)
+
 
 def sglob(pattern):
     return sorted(glob(pattern))
@@ -38,7 +40,7 @@ def run_command(
     command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kwargs
 ):
     """Run a shell command and return its output."""
-    logging.debug("Running command: %s", shlex_join(command))
+    logger.debug("Running command: %s", shlex_join(command))
 
     try:
         result = subprocess.run(
@@ -51,7 +53,7 @@ def run_command(
         )
     except subprocess.CalledProcessError as e:
         output = "\n".join(out.strip() for out in (e.stdout, e.stderr) if out)
-        logging.error("%s - %s", e, output)
+        logger.error("%s - %s", e, output)
         sys.exit(1)
     return (result.stdout or "").strip()
 
@@ -65,7 +67,7 @@ def extract_images(pdf_file, dirpath, book_id):
         os.rename(img_file, new_img_file)
         img_files.append(new_img_file)
         with PIL.Image.open(new_img_file) as img:
-            logging.debug(
+            logger.debug(
                 "image name: %s, dpi: %s, size: %s",
                 os.path.basename(new_img_file),
                 img.info.get("dpi", ("unknown",))[0],
@@ -163,20 +165,20 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
         output_file,
         workdir,
     ])
-    logging.debug("hocr-pdf output: %s", output)
+    logger.debug("hocr-pdf output: %s", output)
 
 
 def calc_scale(img_path, bbox_width, target_dpi):
     pil_logger = logging.getLogger("PIL")
     orig_level = pil_logger.level
-    pil_logger.setLevel(logging.WARN)
+    pil_logger.setLevel(logging.WARNING)
     with PIL.Image.open(img_path) as img:
         img_width, img_height = img.size
         img_dpi = img.info["dpi"][0]
     pil_logger.setLevel(orig_level)
-    logging.debug("img size: %s x %s", img_width, img_height)
+    logger.debug("img size: %s x %s", img_width, img_height)
     scale = (img_width / bbox_width) * (target_dpi / img_dpi)
-    logging.debug("scale: %s", scale)
+    logger.debug("scale: %s", scale)
     return scale
 
 
@@ -209,9 +211,9 @@ def process_page(src_img, src_hocr, page_num, workdir, magick, dpi):
         "-strip",
         str(dst_img),
     ])
-    logging.debug("ImageMagick output: %s", output)
+    logger.debug("ImageMagick output: %s", output)
 
-    logging.debug("Creating symlink: %s -> %s", src_hocr, dst_hocr)
+    logger.debug("Creating symlink: %s -> %s", src_hocr, dst_hocr)
     os.symlink(src_hocr, dst_hocr)
 
     return src_hocr, dst_hocr
@@ -266,7 +268,7 @@ def generate_pdf(
     """
     output_path = Path(output_file).resolve()
     if not overwrite and output_path.is_file():
-        logging.warning("File %s already exists", output_path)
+        logger.warning("File %s already exists", output_path)
         return
 
     if len(img_files) != len(hocr_files):
@@ -318,7 +320,7 @@ def generate_pdf(
 
             for future in futures_iter:
                 result = future.result()
-                logging.debug("future result: %s", result)
+                logger.debug("future result: %s", result)
 
         basename = output_path.stem
         tmp_file_orig = tmp_path / f"{basename}_orig.pdf"
@@ -343,7 +345,7 @@ def generate_pdf(
             stdout=None,
             stderr=None,
         )
-        logging.debug("hocr-pdf output: %s", output)
+        logger.debug("hocr-pdf output: %s", output)
 
         host = socket.gethostname()
 
@@ -356,7 +358,7 @@ def generate_pdf(
             tmp_file_exif,
             tmp_file_orig,
         ])
-        logging.debug("exiftool output: %s", output)
+        logger.debug("exiftool output: %s", output)
 
         # make exiftool changes irreversible
         output = run_command([
@@ -365,9 +367,9 @@ def generate_pdf(
             tmp_file_exif,
             tmp_file_qpdf,
         ])
-        logging.debug("qpdf output: %s", output)
+        logger.debug("qpdf output: %s", output)
 
-        logging.debug("Moving %s to %s:%s", tmp_file_qpdf, host, output_path)
+        logger.debug("Moving %s to %s:%s", tmp_file_qpdf, host, output_path)
         shutil.move(tmp_file_qpdf, output_file)
 
 
@@ -400,7 +402,7 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
         None
     """
     if os.path.isfile(output_file):
-        logging.warning("File %s already exists", output_file)
+        logger.warning("File %s already exists", output_file)
         return
 
     if len(img_files) != len(hocr_files):
@@ -434,7 +436,7 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
                 "-strip",
                 dst_img,
             ])
-            logging.debug("magick output: %s", output)
+            logger.debug("magick output: %s", output)
             os.symlink(src_hocr, dst_hocr)
 
             output = run_command([
@@ -445,7 +447,7 @@ def _generate_pdf(img_files, hocr_files, output_file, dpi=200):
                 page_pdf,
                 page_dir,
             ])
-            logging.debug("hocr-pdf output: %s", output)
+            logger.debug("hocr-pdf output: %s", output)
             page_pdf_files.append(page_pdf)
 
         merge_pdfs(page_pdf_files, output_file, tmpdir=tmpdir)
@@ -498,7 +500,7 @@ def generate_pdf_parallel(
     """
     output_path = Path(output_file).resolve()
     if output_path.is_file():
-        logging.warning("File %s already exists", output_path)
+        logger.warning("File %s already exists", output_path)
         return
 
     if len(img_files) != len(hocr_files):
@@ -592,7 +594,7 @@ def generate_pdfs(
     pdfs = []
     for ext, dpi in PDF_DPI.items():
         outfile = Path(f"{output_base}_{ext}.pdf")
-        logging.debug("Generating PDF: %s (DPI=%s)", outfile, dpi)
+        logger.debug("Generating PDF: %s (DPI=%s)", outfile, dpi)
         generate_pdf(
             img_files,
             hocr_files,
@@ -680,15 +682,15 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
     pdfbox_jars = [Path(f"/usr/share/java/{name}.jar") for name in jar_names]
 
     if qpdf:
-        logging.debug("Using qpdf for merge")
+        logger.debug("Using qpdf for merge")
         cmd = [qpdf, "--empty", "--pages", *input_files, "--", tmp_file_merged]
 
     elif pdftk:
-        logging.debug("Using pdftk for merge")
+        logger.debug("Using pdftk for merge")
         cmd = [pdftk, *input_files, "cat", "output", tmp_file_merged]
 
     elif java_bin and all(jar.exists() for jar in pdfbox_jars):
-        logging.debug("Using PDFBox for merge")
+        logger.debug("Using PDFBox for merge")
         classpath = ":".join(str(jar) for jar in pdfbox_jars)
         cmd = [
             java_bin,
@@ -703,28 +705,28 @@ def _do_merge(input_files, output_file, tmpdir, keep_sources):
 
     else:
         msg = "No available PDF merge tool (qpdf, pdftk, or PDFBox)."
-        logging.error(msg)
+        logger.error(msg)
         raise RuntimeError(msg)
 
     output = run_command(cmd)
-    logging.debug("%s output: %s", Path(cmd[0]).name, output)
+    logger.debug("%s output: %s", Path(cmd[0]).name, output)
 
     # Remove metadata from pdf
     output = run_command(["exiftool", "-q", "-all:all=", tmp_file_merged])
-    logging.debug("exiftool output: %s", output)
+    logger.debug("exiftool output: %s", output)
 
     # make exiftool changes irreversible
     output = run_command([qpdf, "--linearize", tmp_file_merged, tmp_file_opt])
-    logging.debug("qpdf output: %s", output)
+    logger.debug("qpdf output: %s", output)
 
-    logging.debug("Moving %s to %s:%s", tmp_file_opt, host, output_file)
+    logger.debug("Moving %s to %s:%s", tmp_file_opt, host, output_file)
     shutil.move(tmp_file_opt, output_file)
 
     if not keep_sources:
         for file in input_files:
             try:
                 os.unlink(file)
-                logging.debug("Deleted intermediate file: %s", file)
+                logger.debug("Deleted intermediate file: %s", file)
             except OSError as e:
                 raise RuntimeError(f"Can't unlink {file}: {e}")
 
