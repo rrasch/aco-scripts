@@ -2,7 +2,7 @@
 
 import logging
 import sys
-import util
+import pdf_utils as util
 import yaiglobal.helpers as yh
 
 

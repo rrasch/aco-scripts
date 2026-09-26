@@ -77,7 +77,7 @@ import rename_yaiglobal_ocr as ryo
 import shutil
 import subprocess
 import sys
-import util
+import pdf_utils as util
 import zipfile
 
 

@@ -9,7 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
-import util
+import pdf_utils as util
 
 
 def get_page_val(page):
