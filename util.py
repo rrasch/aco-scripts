@@ -282,7 +282,7 @@ def generate_pdf(
 
     magick = get_magick_cmd()
 
-    if max_workers is None:
+    if not max_workers:
         max_workers = get_max_workers()
 
     ExecutorClass = (
@@ -309,7 +309,7 @@ def generate_pdf(
                 )
             ]
 
-            if TQDM_AVAILABLE:
+            if TQDM_AVAILABLE and sys.stderr.isatty():
                 futures_iter = tqdm(
                     concurrent.futures.as_completed(futures),
                     total=len(futures),
