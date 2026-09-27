@@ -30,8 +30,6 @@ For example, the YaiGlobal files for book columbia_aco001224 should be renamed:
 
 """
 
-from pprint import pformat
-from typing import Callable, List
 import argparse
 import grp
 import logging
@@ -41,14 +39,16 @@ import re
 import stat
 import sys
 import time
+from pprint import pformat
+from typing import Callable, ClassVar, List
 
 DMAKER_SUFFIX = "_d.tif"
+
+logger = logging.getLogger(__name__)
 
 
 class FileRenameError(Exception):
     """Raised when there is a problem with the file renaming logic."""
-
-    pass
 
 
 class ColorFormatter:
@@ -59,7 +59,7 @@ class ColorFormatter:
 
     """
 
-    color_codes = {
+    color_codes: ClassVar[dict] = {
         "red": "\033[31m",
         "green": "\033[32m",
         "yellow": "\033[33m",
@@ -262,11 +262,11 @@ def rename_files(
     se_dir, yai_dir, dry_run=False, colorize=False, check_perms=True
 ):
     bookid = get_bookid(se_dir)
-    logging.debug("Book ID: %s", bookid)
+    logger.debug("Book ID: %s", bookid)
 
     renamed_files = path_grep(yai_dir, is_nyu_format(bookid, "html"))
     renamed_files.extend(path_grep(yai_dir, is_nyu_format(bookid, "txt")))
-    logging.debug("Renamed files: %s", pformat(renamed_files))
+    logger.debug("Renamed files: %s", pformat(renamed_files))
 
     if renamed_files:
         raise FileRenameError(
@@ -275,14 +275,14 @@ def rename_files(
         )
 
     src_txt = path_grep(yai_dir, is_yai_format(bookid, "txt"))
-    logging.debug("src_txt: %s", pformat(src_txt))
+    logger.debug("src_txt: %s", pformat(src_txt))
 
     src_html = path_grep(yai_dir, is_yai_format(bookid, "html"))
-    logging.debug("src_html: %s", pformat(src_html))
+    logger.debug("src_html: %s", pformat(src_html))
 
     len_suffix = len(DMAKER_SUFFIX)
     dmaker_imgs = path_grep(se_dir, is_dmaker)
-    logging.debug("dmaker imgs: %s", pformat(dmaker_imgs))
+    logger.debug("dmaker imgs: %s", pformat(dmaker_imgs))
 
     if not dmaker_imgs:
         raise FileRenameError(f"Couldn't find dmaker images in '{se_dir}'")
@@ -296,8 +296,8 @@ def rename_files(
         dst_txt.append(basename + ".txt")
         dst_html.append(basename + ".hocr")
 
-    logging.debug("dst_txt: %s", pformat(dst_txt))
-    logging.debug("dst_html: %s", pformat(dst_html))
+    logger.debug("dst_txt: %s", pformat(dst_txt))
+    logger.debug("dst_html: %s", pformat(dst_html))
 
     if not src_txt:
         raise FileRenameError(
@@ -333,7 +333,7 @@ def rename_files(
     src_list = src_txt + src_html
     dst_list = dst_txt + dst_html
     for src, dst in zip(src_list, dst_list):
-        logging.debug(
+        logger.debug(
             "Renaming '%s' to '%s'",
             cf.format(src, "red"),
             cf.format(dst, "green"),
