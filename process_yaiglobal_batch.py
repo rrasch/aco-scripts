@@ -65,20 +65,27 @@ Usage
   ./process_yaiglobal_batch.py 0007 --config /path/to/custom.ini
 """
 
-from pathlib import Path
-from typing import List, Optional
 import argparse
 import configparser
 import csv
 import hashlib
 import logging
 import re
-import rename_yaiglobal_ocr as ryo
 import shutil
 import subprocess
 import sys
-import pdf_utils as util
 import zipfile
+from pathlib import Path
+from typing import List, Optional
+
+import pdf_utils as util
+import rename_yaiglobal_ocr as ryo
+
+
+# -------------------------------------------------------------------
+# Create logger
+# -------------------------------------------------------------------
+logger = logging.getLogger(__name__)
 
 
 # -------------------------------------------------------------------
@@ -94,7 +101,7 @@ class ValidationError(Exception):
 def load_config(config_path: Path):
     """Load config file and return key paths."""
     if not config_path.exists():
-        logging.error("Config file not found: %s", config_path)
+        logger.error("Config file not found: %s", config_path)
         sys.exit(1)
 
     config = configparser.ConfigParser()
@@ -104,7 +111,7 @@ def load_config(config_path: Path):
         root = Path(config["paths"]["root"])
         s3_bucket = config["paths"]["s3_bucket"]
     except KeyError as e:
-        logging.error("Missing required config key: %s", e)
+        logger.error("Missing required config key: %s", e)
         sys.exit(1)
 
     output_dir = config["paths"].get("output_dir")
@@ -134,16 +141,17 @@ def setup_logging(verbose: bool):
 # -------------------------------------------------------------------
 def run(args):
     """Run external command safely (no shell=True)."""
-    logging.debug("Running: %s", " ".join(args))
+    logger.debug("Running: %s", " ".join(args))
     result = subprocess.run(
         args,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         universal_newlines=True,
+        check=False,
     )
     if result.returncode != 0:
-        logging.error("Command failed: %s", " ".join(args))
-        logging.error(result.stderr.strip())
+        logger.error("Command failed: %s", " ".join(args))
+        logger.error(result.stderr.strip())
         sys.exit(result.returncode)
     return result.stdout.strip()
 
@@ -181,16 +189,16 @@ def verify_tools():
     for tool, ok in results.items():
         mark = "[OK]" if ok else "[X]"
         if ok:
-            logging.info("%s  %-12s found", mark, tool)
+            logger.info("%s  %-12s found", mark, tool)
         else:
-            logging.error("%s  %-12s missing", mark, tool)
+            logger.error("%s  %-12s missing", mark, tool)
 
     missing = [t for t, ok in results.items() if not ok]
     if missing:
-        logging.critical("Missing required tools: %s", ", ".join(missing))
+        logger.critical("Missing required tools: %s", ", ".join(missing))
         sys.exit(1)
 
-    logging.info("All required tools are installed.")
+    logger.info("All required tools are installed.")
 
 
 def create_batch_dirs(root: Path, batch_id: str):
@@ -199,7 +207,7 @@ def create_batch_dirs(root: Path, batch_id: str):
     processing = root / "processing" / f"batch{batch_id}"
     outbox.mkdir(parents=True, exist_ok=True)
     processing.mkdir(parents=True, exist_ok=True)
-    logging.debug("Created directories:\n  %s\n  %s", outbox, processing)
+    logger.debug("Created directories:\n  %s\n  %s", outbox, processing)
     return outbox, processing
 
 
@@ -214,7 +222,7 @@ def sync_s3_batch(s3_bucket: str, batch_id: str, outbox: Path):
         "--profile",
         "yaiglobal",
     ])
-    logging.info("S3 sync complete for batch%s", batch_id)
+    logger.info("S3 sync complete for batch%s", batch_id)
 
 
 def get_batch_csv(s3_bucket: str, batch_id: str, outbox: Path):
@@ -229,7 +237,7 @@ def get_batch_csv(s3_bucket: str, batch_id: str, outbox: Path):
         "--profile",
         "yaiglobal",
     ])
-    logging.info("Batch CSV downloaded: %s", csv_path)
+    logger.info("Batch CSV downloaded: %s", csv_path)
     return csv_path
 
 
@@ -250,7 +258,7 @@ def create_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
     info_file = dirpath / "CACHEINFO.txt"
     hasher_ctor = getattr(hashlib, hash_algo)
 
-    logging.info("Creating checksum files for %s...", dirpath)
+    logger.info("Creating checksum files for %s...", dirpath)
 
     with checksum_file.open("w", encoding="utf-8") as cksum, \
              info_file.open("w", encoding="utf-8") as info:
@@ -273,7 +281,7 @@ def create_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
                 f"{file.name}  size={stat.st_size}  mtime={stat.st_mtime}\n"
             )
 
-    logging.info("✅ Wrote CHECKSUMS.txt and CACHEINFO.txt in %s", dirpath)
+    logger.info("✅ Wrote CHECKSUMS.txt and CACHEINFO.txt in %s", dirpath)
     return checksum_file
 
 
@@ -301,7 +309,7 @@ def verify_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
     sizes_expected = {}
 
     if info_file.exists():
-        logging.debug("Using CACHEINFO.txt for size verification.")
+        logger.debug("Using CACHEINFO.txt for size verification.")
         with info_file.open("r", encoding="utf-8") as f:
             for line in f:
                 m = re.match(r"^(\S+)\s+size=(\d+)", line.strip())
@@ -341,12 +349,12 @@ def verify_directory_checksum(dirpath: Path, hash_algo: str = "sha256"):
 
     if mismatches:
         for msg in mismatches:
-            logging.error(msg)
+            logger.error(msg)
         raise ValidationError(
             f"Integrity check failed for {dirpath}:\n" + "\n".join(mismatches)
         )
 
-    logging.info("✅ Directory integrity verified: %s", dirpath)
+    logger.info("✅ Directory integrity verified: %s", dirpath)
 
 
 def fetch_batch_files(
@@ -366,17 +374,17 @@ def fetch_batch_files(
     cache_root.mkdir(parents=True, exist_ok=True)
 
     if tmp_dir.exists():
-        logging.warning("Removing stale cache temp: %s", tmp_dir)
+        logger.warning("Removing stale cache temp: %s", tmp_dir)
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     zip_files = list(cache_dir.glob("*.zip"))
     cache_ready = len(zip_files) > 0
 
     if cache_ready:
-        logging.info("Cache found for %s — verifying...", batch_name)
+        logger.info("Cache found for %s — verifying...", batch_name)
         verify_directory_checksum(cache_dir)
     else:
-        logging.info("Building cache for %s from S3...", batch_name)
+        logger.info("Building cache for %s from S3...", batch_name)
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         run([
@@ -392,17 +400,17 @@ def fetch_batch_files(
         remove_pattern(tmp_dir, "_lo")
 
         tmp_dir.rename(cache_dir)
-        logging.info("✅ Cache built: %s", cache_dir)
+        logger.info("✅ Cache built: %s", cache_dir)
 
         create_directory_checksum(cache_dir)
 
     for file in cache_dir.glob("*"):
         shutil.copy2(file, outbox)
 
-    logging.info("Verifying outbox integrity: %s", outbox)
+    logger.info("Verifying outbox integrity: %s", outbox)
     verify_directory_checksum(outbox)
 
-    logging.info("✅ Outbox ready: %s", outbox)
+    logger.info("✅ Outbox ready: %s", outbox)
 
 
 def confirm_zip_count(outbox: Path, csv_path: Path):
@@ -451,11 +459,11 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
                 }
 
             used_encoding = enc
-            logging.debug("Parsed CSV using encoding: %s", enc)
+            logger.debug("Parsed CSV using encoding: %s", enc)
             break
 
         except UnicodeDecodeError as e:
-            logging.debug("Failed to parse %s with %s: %s", csv_path, enc, e)
+            logger.debug("Failed to parse %s with %s: %s", csv_path, enc, e)
             continue  # Try the next encoding
 
     else:
@@ -466,7 +474,7 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
     # --- Compare ZIPs vs CSV entries ---
     zip_count = len(zip_bookids)
     csv_count = len(csv_bookids)
-    logging.info("Found %d ZIP files and %d CSV entries.", zip_count, csv_count)
+    logger.info("Found %d ZIP files and %d CSV entries.", zip_count, csv_count)
 
     missing_in_outbox = csv_bookids - zip_bookids
     extra_in_outbox = zip_bookids - csv_bookids
@@ -490,10 +498,10 @@ def confirm_zip_count(outbox: Path, csv_path: Path):
                 f"Count mismatch: {zip_count} ZIPs vs {csv_count} CSV entries."
             )
         message = "\n".join(msg_lines)
-        logging.error(message)
+        logger.error(message)
         raise ValidationError(message)
 
-    logging.info(
+    logger.info(
         "✅ ZIP files and CSV entries match exactly (encoding: %s).",
         used_encoding,
     )
@@ -554,9 +562,9 @@ def unzip_to_processing(
         remove_pattern(target_dir, "_lo")
         remove_pdfs(target_dir)
 
-        logging.debug("Unzipped %s → %s", zip_path.name, target_dir)
+        logger.debug("Unzipped %s → %s", zip_path.name, target_dir)
 
-    logging.info(
+    logger.info(
         "All zip files extracted into processing directory: %s",
         processing,
     )
@@ -580,17 +588,17 @@ def validate_file_counts(processing: Path):
                     f"Count mismatch in {d.name}: "
                     f"{len(htmls)} html vs {len(txts)} txt"
                 )
-                logging.error(msg)
+                logger.error(msg)
                 mismatches.append(msg)
             else:
-                logging.debug("Counts OK for %s: %d each", d.name, len(htmls))
+                logger.debug("Counts OK for %s: %d each", d.name, len(htmls))
 
     if mismatches:
         raise ValidationError(
             "File count validation failed:\n" + "\n".join(mismatches)
         )
 
-    logging.info("✅ File count validation passed for %s", processing)
+    logger.info("✅ File count validation passed for %s", processing)
 
 
 def rename_files(digitization_dir: Path, dmaker_files):
@@ -604,17 +612,17 @@ def rename_files(digitization_dir: Path, dmaker_files):
         new_txt = digitization_dir / f"{dmaker_base}_ocr.txt"
         old_html.rename(new_html)
         old_txt.rename(new_txt)
-        logging.debug("Renamed %s → %s", old_html.name, new_html.name)
-        logging.debug("Renamed %s → %s", old_txt.name, new_txt.name)
+        logger.debug("Renamed %s → %s", old_html.name, new_html.name)
+        logger.debug("Renamed %s → %s", old_txt.name, new_txt.name)
 
-    logging.info("Renaming complete for %s", digitization_dir.name)
+    logger.info("Renaming complete for %s", digitization_dir.name)
 
 
 def generate_pdfs(digitization_dir: Path, dmaker_files):
     """Placeholder for searchable PDF generation."""
     high_pdf = digitization_dir / f"{digitization_dir.name}_high.pdf"
     low_pdf = digitization_dir / f"{digitization_dir.name}_low.pdf"
-    logging.info("(Placeholder) Would generate %s and %s", high_pdf, low_pdf)
+    logger.info("(Placeholder) Would generate %s and %s", high_pdf, low_pdf)
 
 
 def remove_pattern(root: Path, pattern: str) -> None:
@@ -681,12 +689,12 @@ def remove_pdfs(dirpath: Path) -> List[Path]:
         try:
             pdf.unlink()
             removed.append(pdf)
-            logging.debug("Removed PDF: %s", pdf)
+            logger.debug("Removed PDF: %s", pdf)
         except OSError as e:
-            logging.error("Failed to remove %s: %s", pdf, e)
+            logger.error("Failed to remove %s: %s", pdf, e)
             raise
 
-    logging.info("Removed %d PDF files under %s", len(removed), dirpath)
+    logger.info("Removed %d PDF files under %s", len(removed), dirpath)
     return removed
 
 
@@ -728,7 +736,7 @@ def process_batch(
     gen_pdfs=False,
 ):
     """Main workflow for one YaiGlobal batch."""
-    logging.info("Starting YaiGlobal batch processing: %s", batch_id)
+    logger.info("Starting YaiGlobal batch processing: %s", batch_id)
 
     outbox, processing = create_batch_dirs(root, batch_id)
 
@@ -758,7 +766,7 @@ def process_batch(
             output_base = (output_dir or d) / d.name
             util.generate_pdfs(dmaker_imgs, hocr_files, output_base)
 
-    logging.info("✅ Batch %s processing complete.", batch_id)
+    logger.info("✅ Batch %s processing complete.", batch_id)
 
 
 # -------------------------------------------------------------------
