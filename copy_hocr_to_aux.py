@@ -3,8 +3,11 @@
 import logging
 import shutil
 import sys
-import yaiglobal.helpers as yh
 from pathlib import Path
+
+import yaiglobal.helpers as yh
+
+logger = logging.getLogger(__name__)
 
 
 def copy_hocr_files(
@@ -24,7 +27,7 @@ def copy_hocr_files(
 
     files = list(src_dir.glob("*.hocr"))
     if not files:
-        logging.warning("No .hocr files found in %s", src_dir)
+        logger.warning("No .hocr files found in %s", src_dir)
         return
 
     copied_count = 0
@@ -35,18 +38,18 @@ def copy_hocr_files(
 
         if target.exists():
             skipped_count += 1
-            logging.warn("[SKIP] %s already exists", target)
+            logger.warning("[SKIP] %s already exists", target)
             continue
 
         copied_count += 1
         if dry_run:
-            logging.info("[DRY-RUN] Would copy %s -> %s", hocr_file, target)
+            logger.info("[DRY-RUN] Would copy %s -> %s", hocr_file, target)
         else:
-            logging.debug("Copying %s -> %s", hocr_file, target)
+            logger.debug("Copying %s -> %s", hocr_file, target)
             shutil.copy2(hocr_file, target)
 
     action = "Would copy" if dry_run else "Copied"
-    logging.info(
+    logger.info(
         "%s %d files, skipped %d files, to %s",
         action,
         copied_count,
@@ -80,7 +83,7 @@ def main():
         sys.exit(f"Root directory not found: '{root}'")
 
     processing = root / "processing" / f"batch{args.batch_id}"
-    logging.debug("Processing dir: %s", processing)
+    logger.debug("Processing dir: %s", processing)
 
     for d in sorted(processing.iterdir()):
         if not d.is_dir():
