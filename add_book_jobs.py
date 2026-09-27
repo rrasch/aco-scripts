@@ -5,10 +5,12 @@ import logging
 import subprocess
 import sys
 
-from book_paths import get_book_dirs, BookDirError
+from book_paths import BookDirError, get_book_dirs
 
 sys.path.append("/usr/local/dlib/task-queue")
 import tqcommon
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -64,7 +66,7 @@ def main():
     try:
         meta = get_book_dirs(args.book_ids)
     except BookDirError as e:
-        logging.error(e)
+        logger.error(e)
         sys.exit(1)
 
     for book_id, info in meta.items():
@@ -83,7 +85,7 @@ def main():
             book_id,
         ]
 
-        logging.info("Command: %s", " ".join(cmd))
+        logger.info("Command: %s", " ".join(cmd))
 
         if args.dry_run:
             continue
@@ -91,7 +93,7 @@ def main():
         try:
             subprocess.run(cmd, check=True)
         except subprocess.CalledProcessError as e:
-            logging.error(f"Command failed for {book_id}: {e}")
+            logger.error(f"Command failed for {book_id}: {e}")
 
 
 if __name__ == "__main__":
