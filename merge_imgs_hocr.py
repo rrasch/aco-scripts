@@ -1,7 +1,5 @@
 #!/usr/bin/python3
 
-from PIL import Image
-from lxml import etree as ET
 import argparse
 import glob
 import logging
@@ -9,7 +7,13 @@ import os
 import subprocess
 import sys
 import tempfile
+
+from lxml import etree as ET
+from PIL import Image
+
 import pdf_utils as util
+
+logger = logging.getLogger(__name__)
 
 
 def get_page_val(page):
@@ -23,7 +27,7 @@ def get_num_pages(meta_file):
         max_page = max(pages, key=get_page_val)
         return get_page_val(max_page)
     except ET.XMLSyntaxError as e:
-        logging.warning(
+        logger.warning(
             "Problem parsing file '%s' - %s: %s", meta_file, type(e).__name__, e
         )
         return None
@@ -40,7 +44,7 @@ def merge_hocr(img_files, hocr_files, output_file, workdir):
         output = util.run_command(
             [magick, img, "-resample", str(new_dpi), root + ".jpg"]
         )
-        logging.debug("magick output: %s", output)
+        logger.debug("magick output: %s", output)
         os.symlink(hocr, root + ".hocr")
 
     output = util.run_command([
@@ -52,7 +56,7 @@ def merge_hocr(img_files, hocr_files, output_file, workdir):
         output_file,
         workdir,
     ])
-    logging.debug("hocr-pdf output: %s", output)
+    logger.debug("hocr-pdf output: %s", output)
 
 
 def remove_blank_lines(text):
@@ -74,23 +78,23 @@ def validate_pdf(pdf_file):
         check=True,
     )
 
-    logging.debug("jhove xml output:\n%s", result.stdout.decode())
+    logger.debug("jhove xml output:\n%s", result.stdout.decode())
 
     root = ET.fromstring(result.stdout)
-    logging.debug("jhove text output:\n%s", get_all_text(root))
+    logger.debug("jhove text output:\n%s", get_all_text(root))
 
-    logging.debug("Namespaces: %s", root.nsmap)
+    logger.debug("Namespaces: %s", root.nsmap)
     nsmap = {"j": root.nsmap[None]}
     xpath = "/j:jhove/j:repInfo/j:status"
     status = root.xpath(xpath, namespaces=nsmap)[0].text
-    logging.debug("jhove status: %s", status)
+    logger.debug("jhove status: %s", status)
 
     if "well-formed and valid" not in status.lower():
         sys.exit(f"PDF {pdf_file} fails JHOVE validation.")
 
 
 def do_cmd(command):
-    logging.debug("Running command: %s", command)
+    logger.debug("Running command: %s", command)
     subprocess.run(command, check=True)
 
 
@@ -103,7 +107,7 @@ def main():
     parser.add_argument("-d", "--debug", action="store_true")
     args = parser.parse_args()
 
-    level = logging.DEBUG if args.debug else logging.WARN
+    level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(format="%(levelname)s: %(message)s", level=level)
 
     book_id = os.path.basename(args.book_dir)
@@ -118,7 +122,7 @@ def main():
     if not args.skip_meta:
         meta_file = os.path.join(args.book_dir, "DJVUXML.xml")
         num_pages = get_num_pages(meta_file)
-        logging.debug("Num pages: %s", num_pages)
+        logger.debug("Num pages: %s", num_pages)
 
         if not num_pages:
             sys.exit(f"Can't find number of pages for {book_id}")

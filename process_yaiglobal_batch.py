@@ -81,7 +81,6 @@ from typing import List, Optional
 import pdf_utils as util
 import rename_yaiglobal_ocr as ryo
 
-
 # -------------------------------------------------------------------
 # Create logger
 # -------------------------------------------------------------------
