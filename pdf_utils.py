@@ -227,6 +227,7 @@ def generate_pdf(
     max_workers=None,
     use_processes=False,
     overwrite=False,
+    progress=False,
 ):
     """
     Generate a searchable PDF from image and hOCR files using hocr-pdf.
@@ -255,7 +256,8 @@ def generate_pdf(
             ThreadPoolExecutor (default, ideal for subprocess-heavy
             tasks).
         overwrite (bool, optional): Allow output_file to be overwritten if True.
-            Defaukts to False.
+            Defaults to False.
+        progress (bool, optional): Show progress bar. Defaults to False.
 
     Raises:
         ValueError: If the number of image and hOCR files differ, or if no
@@ -309,11 +311,12 @@ def generate_pdf(
                 )
             ]
 
-            if TQDM_AVAILABLE and sys.stderr.isatty():
+            if TQDM_AVAILABLE and progress:
                 futures_iter = tqdm(
                     concurrent.futures.as_completed(futures),
                     total=len(futures),
-                    desc="Processing pages",
+                    desc=f"Processing {dpi} dpi images",
+                    disable=None,
                 )
             else:
                 futures_iter = concurrent.futures.as_completed(futures)
@@ -327,10 +330,18 @@ def generate_pdf(
         tmp_file_exif = tmp_path / f"{basename}_exif.pdf"
         tmp_file_qpdf = tmp_path / f"{basename}_qpdf.pdf"
 
-        if logging.getLogger().isEnabledFor(logging.DEBUG):
-            extra_args = ["--debug"]
+        extra_args = []
+
+        if logger.isEnabledFor(logging.DEBUG):
+            extra_args.append("--debug")
+
+        if progress:
+            extra_args.append("--progress")
+
+        if sys.stdout.isatty():
+            stdout, stderr = sys.stdout, sys.stderr
         else:
-            extra_args = []
+            stdout, stderr = None, None
 
         output = run_command(
             [
@@ -338,12 +349,12 @@ def generate_pdf(
                 "--reverse",
                 "auto",
                 "--savefile",
-                tmp_file_orig,
+                str(tmp_file_orig),
                 *extra_args,
                 tmpdir,
             ],
-            stdout=None,
-            stderr=None,
+            stdout=stdout,
+            stderr=stderr,
         )
         logger.debug("hocr-pdf output: %s", output)
 
@@ -355,8 +366,8 @@ def generate_pdf(
             "-q",
             "-all:all=",
             "-o",
-            tmp_file_exif,
-            tmp_file_orig,
+            str(tmp_file_exif),
+            str(tmp_file_orig),
         ])
         logger.debug("exiftool output: %s", output)
 
@@ -364,8 +375,8 @@ def generate_pdf(
         output = run_command([
             "qpdf",
             "--linearize",
-            tmp_file_exif,
-            tmp_file_qpdf,
+            str(tmp_file_exif),
+            str(tmp_file_qpdf),
         ])
         logger.debug("qpdf output: %s", output)
 
@@ -563,6 +574,7 @@ def generate_pdfs(
     output_base,
     max_workers=None,
     overwrite=False,
+    progress=False,
 ):
     """
     Generate multiple PDF variants from image and hOCR files.
@@ -584,6 +596,7 @@ def generate_pdfs(
             Defaults to CPU count - 1.
         overwrite (bool, optional): Allow output files to be overwritten
             if True. Defaults to False.
+        progress (bool, optional): Show progress bar. Defaults to False.
 
     Returns:
         list[pathlib.Path]: Paths to the generated PDF files.
@@ -602,6 +615,7 @@ def generate_pdfs(
             dpi=dpi,
             max_workers=max_workers,
             overwrite=overwrite,
+            progress=progress,
         )
         pdfs.append(outfile)
     return pdfs
