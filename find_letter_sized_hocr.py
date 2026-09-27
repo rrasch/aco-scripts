@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
 import logging
-import sys
+
 import pdf_utils as util
 import yaiglobal.helpers as yh
+
+logger = logging.getLogger(__name__)
 
 
 def main():
@@ -16,7 +18,7 @@ def main():
 
         hocr_files = sorted(d.rglob("*.hocr"))
         bbox = util.get_first_valid_bbox(hocr_files)
-        logging.debug("bbox: %s", bbox)
+        logger.debug("bbox: %s", bbox)
         if bbox and bbox["width"] == 612 and bbox["height"] == 792:
             print(d.name)
 
