@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 
-from glob import glob
-from pathlib import Path
-from pprint import pformat, pprint
-import PIL.Image
 import argparse
 import logging
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
 import zipfile
+from glob import glob
+from pprint import pformat
+
+import PIL.Image
+
+logger = logging.getLogger(__name__)
 
 
 def sglob(pattern):
@@ -22,7 +23,7 @@ def sglob(pattern):
 
 def run_command(command, stderr=subprocess.STDOUT, **kwargs):
     """Run a shell command and return its output."""
-    logging.debug("Running command: %s", shlex_join(command))
+    logger.debug("Running command: %s", shlex_join(command))
 
     try:
         result = subprocess.run(
@@ -35,7 +36,7 @@ def run_command(command, stderr=subprocess.STDOUT, **kwargs):
         )
     except subprocess.CalledProcessError as e:
         output = "\n".join(out.strip() for out in (e.stdout, e.stderr) if out)
-        logging.error("%s - %s", e, output)
+        logger.error("%s - %s", e, output)
         sys.exit(1)
     return result.stdout.strip()
 
@@ -49,7 +50,7 @@ def extract_images(pdf_file, dirpath, book_id):
         os.rename(img_file, new_img_file)
         img_files.append(new_img_file)
         with PIL.Image.open(new_img_file) as img:
-            logging.debug(
+            logger.debug(
                 "image name: %s, dpi: %s, size: %s",
                 os.path.basename(new_img_file),
                 img.info.get("dpi", ("unknown",))[0],
@@ -87,7 +88,7 @@ def merge_hocr(img_files, hocr_files, output_file, workdir, scale):
         output_file,
         workdir,
     ])
-    logging.debug("hocr-pdf output: %s", output)
+    logger.debug("hocr-pdf output: %s", output)
 
 
 def extract_zip(zip_path, dirpath):
@@ -138,10 +139,10 @@ def main():
     )
     args = parser.parse_args()
 
-    level = logging.DEBUG if args.debug else logging.WARN
+    level = logging.DEBUG if args.debug else logging.WARNING
     logging.basicConfig(level=level)
 
-    root, ext = os.path.splitext(args.zip_file)
+    root, _ext = os.path.splitext(args.zip_file)
     book_id = os.path.basename(root)
 
     if args.output_file:
@@ -152,19 +153,19 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         extract_zip(args.zip_file, tmpdir)
         hocr_files = sglob(os.path.join(tmpdir, "*hocr.html"))
-        logging.debug("hOCR files: %s", pformat(hocr_files))
+        logger.debug("hOCR files: %s", pformat(hocr_files))
 
         pdf_file = sglob(os.path.join(tmpdir, "*.pdf"))[0]
-        logging.debug("pdf_file: %s", pdf_file)
+        logger.debug("pdf_file: %s", pdf_file)
 
         pdf = PDFInfo(pdf_file)
-        logging.debug("PDF info: %s", pformat(pdf.info))
+        logger.debug("PDF info: %s", pformat(pdf.info))
 
         num_pages = int(pdf.info["Pages"])
-        logging.debug("Num Pages: %s", num_pages)
+        logger.debug("Num Pages: %s", num_pages)
 
         img_files = extract_images(pdf_file, tmpdir, book_id)
-        logging.debug("Images: %s", pformat(img_files))
+        logger.debug("Images: %s", pformat(img_files))
 
         if num_pages != len(img_files):
             sys.exit(
