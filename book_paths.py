@@ -1,5 +1,9 @@
 import re
+import sys
 from pathlib import Path
+
+sys.path.append("/usr/local/dlib/task-queue")
+from tqcommon import get_rstar_dir
 
 
 class BookDirError(Exception):
@@ -28,8 +32,10 @@ def get_book_dirs(book_ids):
             book_id: {
                 "partner": <partner>,
                 "collection": <collection>,
-                "rstar_dir": Path(...),
-                "wip_dir": Path(...),
+                "coll_dir": Path(...),
+                "book_dir": Path(...),
+                "data_dir": Path(...),
+                "aux_dir": Path(...),
             },
             ...
         }
@@ -41,27 +47,28 @@ def get_book_dirs(book_ids):
     for book_id in book_ids:
         partner, collection = parse_book_id(book_id)
 
-        rstar_dir = Path(f"/content/prod/rstar/content/{partner}/{collection}")
-        if not rstar_dir.exists():
-            raise BookDirError(f"Missing rstar_dir: {rstar_dir}")
+        coll_dir = Path(get_rstar_dir()) / "content" / partner / collection
 
-        wip_dir = rstar_dir / "wip" / "se" / book_id
-        if not wip_dir.exists():
-            raise BookDirError(f"Missing wip_dir: {wip_dir}")
+        if not coll_dir.exists():
+            raise BookDirError(f"Missing coll_dir: {coll_dir}")
 
-        data_dir = wip_dir / "data"
+        book_dir = coll_dir / "wip" / "se" / book_id
+        if not book_dir.exists():
+            raise BookDirError(f"Missing book_dir: {book_dir}")
+
+        data_dir = book_dir / "data"
         if not data_dir.exists():
             raise BookDirError(f"Missing data_dir: {data_dir}")
 
-        aux_dir = wip_dir / "aux"
+        aux_dir = book_dir / "aux"
         if not aux_dir.exists():
             raise BookDirError(f"Missing aux_dir: {aux_dir}")
 
         results[book_id] = {
             "partner": partner,
             "collection": collection,
-            "rstar_dir": rstar_dir,
-            "wip_dir": wip_dir,
+            "coll_dir": coll_dir,
+            "book_dir": book_dir,
             "data_dir": data_dir,
             "aux_dir": aux_dir,
         }

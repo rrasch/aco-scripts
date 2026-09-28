@@ -70,8 +70,6 @@ def main():
         sys.exit(1)
 
     for book_id, info in meta.items():
-        rstar_dir = info["rstar_dir"]
-
         cmd = [
             "add-mb-job",
             "-m",
@@ -79,7 +77,7 @@ def main():
             "-s",
             f"book_publisher:{args.op}",
             "-r",
-            str(rstar_dir),
+            str(info["coll_dir"]),
             "-e",
             "-f",
             book_id,
