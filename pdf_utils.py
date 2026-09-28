@@ -287,6 +287,18 @@ def generate_pdf(
     if not max_workers:
         max_workers = get_max_workers()
 
+    is_debug = logger.isEnabledFor(logging.DEBUG)
+
+    if is_debug and progress:
+        logger.warning(
+            "Debug logging and progress bar can't both be set; "
+            "only debug logging will be enabled."
+        )
+
+    show_progress = (
+        TQDM_AVAILABLE and progress and sys.stderr.isatty() and not is_debug
+    )
+
     ExecutorClass = (
         concurrent.futures.ProcessPoolExecutor
         if use_processes
@@ -311,7 +323,7 @@ def generate_pdf(
                 )
             ]
 
-            if TQDM_AVAILABLE and progress:
+            if show_progress:
                 futures_iter = tqdm(
                     concurrent.futures.as_completed(futures),
                     total=len(futures),
@@ -332,16 +344,14 @@ def generate_pdf(
 
         extra_args = []
 
-        if logger.isEnabledFor(logging.DEBUG):
+        stderr = None
+
+        if is_debug:
             extra_args.append("--debug")
 
-        if progress:
+        elif show_progress:
             extra_args.append("--progress")
-
-        if sys.stdout.isatty():
-            stdout, stderr = sys.stdout, sys.stderr
-        else:
-            stdout, stderr = None, None
+            stderr = sys.stderr
 
         output = run_command(
             [
@@ -353,7 +363,7 @@ def generate_pdf(
                 *extra_args,
                 tmpdir,
             ],
-            stdout=stdout,
+            stdout=None,
             stderr=stderr,
         )
         logger.debug("hocr-pdf output: %s", output)
