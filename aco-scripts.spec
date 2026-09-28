@@ -56,3 +56,6 @@ rm -rf %{buildroot}%{install_dir}/__pycache__
 %{install_dir}
 
 %changelog
+* Sun Sep 27 2026 Rasan Rasch - 1.0.2-1
+- Update to 1.0.2
+
